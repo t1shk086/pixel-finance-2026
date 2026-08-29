@@ -87,14 +87,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ТВОИТЕ ПЕРСОНАЛИЗИРАНИ КАТЕГОРИИ
 KATEGORII = ["Храна и пазар за дома", "Месечни сметки", "Данъци", "Кола и мотор", "Развлечения и пътуване", "Зареждане на Револют", "Плащане по Кредитна карта"]
 DATA_FILE = "finance_data_2026.csv"
 SETTINGS_FILE = "finance_months_2026.csv"
 BUDGETS_FILE = "finance_budgets_2026.csv"
 
 for f, cols in [(DATA_FILE, ["month_id", "date", "amount", "category", "description", "payment_method"]), 
-                (SETTINGS_FILE, ["month_id", "start_date", "month_finished", "initial_total", "initial_cash", "initial_debit", "initial_credit", "initial_revolut"]),
+                (SETTINGS_FILE, ["month_id", "start_date", "month_finished", "initial_total", "initial_cash", "initial_debit", "initial_revolut"]),
                 (BUDGETS_FILE, ["month_id", "category", "budget"])]:
     if not os.path.exists(f): pd.DataFrame(columns=cols).to_csv(f, index=False, encoding="utf-8")
 def get_emoji(cat):
@@ -114,15 +113,14 @@ def get_month_settings(m_id):
             return {
                 "month_id": m_id, "start_date": str(res.get("start_date", "")), "month_finished": str(res.get("month_finished", "Не")),
                 "initial_total": float(res.get("initial_total", 0.0) or 0.0), "initial_cash": float(res.get("initial_cash", 0.0) or 0.0),
-                "initial_debit": float(res.get("initial_debit", 0.0) or 0.0), "initial_credit": float(res.get("initial_credit", 0.0) or 0.0),
-                "initial_revolut": float(res.get("initial_revolut", 0.0) or 0.0)
+                "initial_debit": float(res.get("initial_debit", 0.0) or 0.0), "initial_revolut": float(res.get("initial_revolut", 0.0) or 0.0)
             }
     except: pass
-    return {"month_id": m_id, "start_date": "", "month_finished": "Не", "initial_total": 0.0, "initial_cash": 0.0, "initial_debit": 0.0, "initial_credit": 0.0, "initial_revolut": 0.0}
+    return {"month_id": m_id, "start_date": "", "month_finished": "Не", "initial_total": 0.0, "initial_cash": 0.0, "initial_debit": 0.0, "initial_revolut": 0.0}
 
-def save_month_settings(m_id, s_date, finished, total, cash, debit, credit, revolut):
+def save_month_settings(m_id, s_date, finished, total, cash, debit, revolut):
     df = pd.read_csv(SETTINGS_FILE, encoding="utf-8")[lambda d: d["month_id"] != m_id]
-    new_row = pd.DataFrame([{"month_id": m_id, "start_date": s_date, "month_finished": finished, "initial_total": float(total or 0), "initial_cash": float(cash or 0), "initial_debit": float(debit or 0), "initial_credit": float(credit or 0), "initial_revolut": float(revolut or 0)}])
+    new_row = pd.DataFrame([{"month_id": m_id, "start_date": s_date, "month_finished": finished, "initial_total": float(total or 0), "initial_cash": float(cash or 0), "initial_debit": float(debit or 0), "initial_revolut": float(revolut or 0)}])
     pd.concat([df, new_row], ignore_index=True).to_csv(SETTINGS_FILE, index=False, encoding="utf-8")
 
 def add_transaction(m_id, amt, cat, desc, method):
@@ -157,21 +155,17 @@ if st.session_state["current_month"] is None:
         m_name = st.selectbox("Избери Месец:", ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"])
         m_year = st.selectbox("Година:", ["2026", "2027"])
         target_id = f"{m_name}_{m_year}"
-        st.markdown("<small style='color: #00f2fe; font-weight: bold;'>Разпредели началната сума по твоите сметки:</small>", unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            cash = st.number_input("💵 Наличен Кеш (EUR):", min_value=0.0, step=20.0)
-            debit = st.number_input("💳 Дебитна карта (EUR):", min_value=0.0, step=50.0)
-        with col_b:
-            credit = st.number_input("🚨 Кредитна карта лимит (EUR):", min_value=0.0, step=50.0)
-            revolut = st.number_input("🔄 Револют баланс (EUR):", min_value=0.0, step=50.0)
-        total_start = cash + debit + credit + revolut
+        st.markdown("<small style='color: #00f2fe; font-weight: bold;'>С какви пари стартираш приложението?</small>", unsafe_allow_html=True)
+        cash = st.number_input("💵 Стартов Кеш / В брой (EUR):", min_value=0.0, step=20.0)
+        debit = st.number_input("💳 Стартов баланс в Дебитна Карта (EUR):", min_value=0.0, step=50.0)
+        revolut = st.number_input("🔄 Стартов баланс в Револют (EUR):", min_value=0.0, step=50.0)
+        total_start = cash + debit + revolut
         if st.button("✔️ Създай и Отвори", use_container_width=True, type="primary"):
-            save_month_settings(target_id, datetime.datetime.now().strftime("%d.%m.%Y"), "Не", total_start, cash, debit, credit, revolut)
+            save_month_settings(target_id, datetime.datetime.now().strftime("%d.%m.%Y"), "Не", total_start, cash, debit, revolut)
             st.session_state["current_month"] = target_id
             st.rerun()
 
-    if st.button(" Нов Бюджетен Картон", use_container_width=True, key="new_month_btn", type="primary"): create_month_modal()
+    if st.button(" Нов Месечен Бюджет", use_container_width=True, key="new_month_btn", type="primary"): create_month_modal()
 
     try: existing_months = list(pd.read_csv(SETTINGS_FILE)["month_id"].dropna().unique())
     except: existing_months = []
@@ -191,16 +185,16 @@ if st.session_state["current_month"] is None:
             _safe_key = hashlib.sha256(_m_id.encode("utf-8")).hexdigest()[:16]
             _button_key = f"month_card_{_safe_key}"
             st.markdown(f"<style>.st-key-{_button_key} button {{ background: {_bar_gradient} bottom / 100% 12px no-repeat, linear-gradient(135deg,rgba(255,255,255,.035),rgba(255,255,255,.012)) !important; width: 100% !important; height: auto !important; display: block !important; text-align: left !important; }}</style>", unsafe_allow_html=True)
-            _label = f"📅 **{_m_id.replace('_', ' ')}**\n{_status_dot}\nЧисти разходи: €{_spent:,.2f} / Първоначален капитал: €{_total_funds:,.2f}"
+            _label = f"📅 **{_m_id.replace('_', ' ')}**\n{_status_dot}\nЧисти разходи: €{_spent:,.2f} / Стартов капитал: €{_total_funds:,.2f}"
             if st.button(_label, key=_button_key, use_container_width=True): st.session_state["current_month"] = _m_id; st.rerun()
 else:
     month_id = st.session_state["current_month"]
     c_s = get_month_settings(month_id)
     is_month_finished = c_s.get("month_finished") == "Да"
-    initial_total, initial_cash, initial_debit, initial_credit, initial_revolut = float(c_s.get("initial_total", 0.0)), float(c_s.get("initial_cash", 0.0)), float(c_s.get("initial_debit", 0.0)), float(c_s.get("initial_credit", 0.0)), float(c_s.get("initial_revolut", 0.0))
+    initial_total, initial_cash, initial_debit, initial_revolut = float(c_s.get("initial_total", 0.0)), float(c_s.get("initial_cash", 0.0)), float(c_s.get("initial_debit", 0.0)), float(c_s.get("initial_revolut", 0.0))
 
-    st.markdown(f"<div style='text-align: center; margin-bottom: 20px;'><h2 style='color: #00f2fe;'>📊 Картон: {month_id.replace('_', ' ')}</h2></div>", unsafe_allow_html=True)
-    if st.button("🔙 НАЗАД КЪМ ИЗБОР НА МЕСЕЦ", use_container_width=True): st.session_state["current_month"] = None; st.rerun()
+    st.markdown(f"<div style='text-align: center; margin-bottom: 20px;'><h2 style='color: #00f2fe;'>📊 Разчет: {month_id.replace('_', ' ')}</h2></div>", unsafe_allow_html=True)
+    if st.button("🔙 НАЗАД КЪМ ГЛАВНО МЕНЮ", use_container_width=True): st.session_state["current_month"] = None; st.rerun()
 
     st.markdown("---")
     v_id = st.session_state["form_version"]
@@ -211,8 +205,8 @@ else:
     ekran_za_kategorii = st.empty()
     if o_input.strip() and s_input and s_input > 0:
         with ekran_za_kategorii.container():
-            st.markdown("<div style='text-align: center;'><h3 style='color: #00f2fe;'>🎯 ИЗБЕРИ СМЕТКА И КАТЕГОРИЯ</h3></div>", unsafe_allow_html=True)
-            method = st.radio("От коя сметка се теглят парите?", ["💵 Кеш", "💳 Дебитна карта", "🚨 Кредитна карта", "🔄 Револют"], horizontal=True, key=f"mth_{v_id}")
+            st.markdown("<div style='text-align: center;'><h3 style='color: #00f2fe;'>🎯 НАЧИН НА ПЛАЩАНЕ И КАТЕГОРИЯ</h3></div>", unsafe_allow_html=True)
+            method = st.radio("С какво платихте?", ["💵 Кеш", "💳 Дебитна карта", "🚨 Кредитна карта", "🔄 Револют"], horizontal=True, key=f"mth_{v_id}")
             grid = st.columns(3)
             for i, kat in enumerate(KATEGORII):
                 with grid[i % 3]:
@@ -225,9 +219,9 @@ else:
     col_m1, col_m2 = st.columns(2)
     with col_m1:
         if not is_month_finished:
-            if st.button("🏁 Приключи Месечния Период", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Да", initial_total, initial_cash, initial_debit, initial_credit, initial_revolut); st.rerun()
+            if st.button("🏁 Приключи Месечния Период", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Да", initial_total, initial_cash, initial_debit, initial_revolut); st.rerun()
         else:
-            if st.button("🔓 Отключи за Редакция", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Не", initial_total, initial_cash, initial_debit, initial_credit, initial_revolut); st.rerun()
+            if st.button("🔓 Отключи за Редакция", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Не", initial_total, initial_cash, initial_debit, initial_revolut); st.rerun()
     with col_m2:
         if st.button("🎯 Настрой лимити по категории", use_container_width=True, disabled=is_month_finished):
             @st.dialog("Лимити за месеца")
@@ -237,55 +231,24 @@ else:
                 if st.button("💾 Запази Лимитите", use_container_width=True, type="primary"): save_category_budgets(month_id, new_budgets); st.rerun()
             set_limits_modal()
 
-    # СЛОЖНА СЧЕТОВОДНА МИГРАЦИЯ И ДИНАМИЧНО ИЗЧИСЛЯВАНЕ НА БАЛАНСИТЕ С ТРАНСФЕРИ
+    # Счетоводни трансфери
     df_m = get_month_data(month_id)
     cash_out, debit_out, credit_out, revolut_out = 0.0, 0.0, 0.0, 0.0
     revolut_in, credit_in = 0.0, 0.0
-    clean_spent = 0.0
-
     if not df_m.empty:
         for _, row in df_m.iterrows():
             amt = float(row["amount"])
             method_used = row["payment_method"]
             cat = row["category"]
-            
-            # Изваждане от сметката, от която плащаме
             if method_used == "💵 Кеш": cash_out += amt
             elif method_used == "💳 Дебитна карта": debit_out += amt
             elif method_used == "🚨 Кредитна карта": credit_out += amt
             elif method_used == "🔄 Револют": revolut_out += amt
-            
-            # Интелигентни трансфери между пера:
             if cat == "Зареждане на Револют": revolut_in += amt
             elif cat == "Плащане по Кредитна карта": credit_in += amt
-            else: clean_spent += amt
 
-    final_cash = initial_cash - cash_out
-    final_debit = initial_debit - debit_out
-    final_credit = initial_credit - credit_out + credit_in
-    final_revolut = initial_revolut - revolut_out + revolut_in
-
-    st.markdown("### 🏦 Сметки и Наличност по уолети в реално време")
-    st.markdown(f"""
-    <div style='display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 20px;'>
-        <div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'>
-            <div style='font-size: 9px; color: #8f98a3;'>💵 КЕШ</div>
-            <div style='font-size: 14px; color: #ffd43b; font-weight: 900; margin-top: 5px;'>€{final_cash:.2f}</div>
-        </div>
-        <div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'>
-            <div style='font-size: 9px; color: #8f98a3;'>💳 ДЕБИТНА</div>
-            <div style='font-size: 14px; color: #49dc72; font-weight: 900; margin-top: 5px;'>€{final_debit:.2f}</div>
-        </div>
-        <div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'>
-            <div style='font-size: 9px; color: #8f98a3;'>🚨 КРЕДИТНА</div>
-            <div style='font-size: 14px; color: #ff4b4b; font-weight: 900; margin-top: 5px;'>€{final_credit:.2f}</div>
-        </div>
-        <div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'>
-            <div style='font-size: 9px; color: #8f98a3;'>🔄 РЕВОЛЮТ</div>
-            <div style='font-size: 14px; color: #00d9ff; font-weight: 900; margin-top: 5px;'>€{final_revolut:.2f}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### 🏦 Наличности по портфейли в реално време")
+    st.markdown(f"<div style='display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 20px;'><div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'><div style='font-size: 9px; color: #8f98a3;'>💵 КЕШ</div><div style='font-size: 14px; color: #ffd43b; font-weight: 900; margin-top: 5px;'>€{(initial_cash - cash_out):.2f}</div></div><div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'><div style='font-size: 9px; color: #8f98a3;'>💳 ДЕБИТНА</div><div style='font-size: 14px; color: #49dc72; font-weight: 900; margin-top: 5px;'>€{(initial_debit - debit_out):.2f}</div></div><div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'><div style='font-size: 9px; color: #8f98a3;'>🚨 КРЕДИТНА ДЪЛГ</div><div style='font-size: 14px; color: #ff4b4b; font-weight: 900; margin-top: 5px;'>€{(credit_out - credit_in):.2f}</div></div><div style='background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); padding: 10px 5px; border-radius: 12px; text-align: center;'><div style='font-size: 9px; color: #8f98a3;'>🔄 РЕВОЛЮТ</div><div style='font-size: 14px; color: #00d9ff; font-weight: 900; margin-top: 5px;'>€{(initial_revolut - revolut_out + revolut_in):.2f}</div></div></div>", unsafe_allow_html=True)
 
     category_budgets = get_category_budgets(month_id); stat_grid = st.columns(2)
     for idx, kat in enumerate(KATEGORII):
@@ -293,7 +256,7 @@ else:
             cat_spent = float(df_m[df_m["category"] == kat]["amount"].sum()) if not df_m.empty else 0.0
             limit = category_budgets.get(kat, 0.0)
             pct_of_funds = (cat_spent / initial_total * 100) if initial_total > 0 else 0.0
-            st.markdown(f'<div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); padding: 14px; border-radius: 14px; margin-bottom: 12px;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><span style="font-weight: bold; font-size: 13px;">{get_emoji(kat)} {kat}</span><span style="font-weight: bold; color: #ff4b4b; font-size: 14px;">€{cat_spent:.2f}</span></div><div style="background: rgba(0, 0, 0, 0.4); height: 12px; border-radius: 20px; padding: 2px; position: relative; overflow: hidden; margin-top: 4px;"><div style="width: {min(100.0, pct_of_funds)}%; height: 100%; background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border-radius: 20px;"></div></div><div style="font-size: 10px; color: #888; margin-top: 4px; display: flex; justify-content: space-between;"><span>Дял от тотал: {pct_of_funds:.1f}%</span><span>Лимит: {f"€{limit:.2f}" if limit > 0 else "Няма"}</span></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); padding: 14px; border-radius: 14px; margin-bottom: 12px;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><span style="font-weight: bold; font-size: 13px;">{get_emoji(kat)} {kat}</span><span style="font-weight: bold; color: #ff4b4b; font-size: 14px;">€{cat_spent:.2f}</span></div><div style="background: rgba(0, 0, 0, 0.4); height: 12px; border-radius: 20px; padding: 2px; position: relative; overflow: hidden; margin-top: 4px;"><div style="width: {min(100.0, pct_of_funds)}%; height: 100%; background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border-radius: 20px;"></div></div><div style="font-size: 10px; color: #888; margin-top: 4px; display: flex; justify-content: space-between;"><span>Дял: {pct_of_funds:.1f}%</span><span>Лимит: {f"€{limit:.2f}" if limit > 0 else "Няма"}</span></div></div>', unsafe_allow_html=True)
 
     st.markdown("---"); st.markdown("### 📜 Хронология на транзакциите")
     if not df_m.empty:
@@ -305,3 +268,12 @@ else:
                 if st.button("🗑️", key=f"del_{idx}", disabled=is_month_finished, use_container_width=True):
                     pd.read_csv(DATA_FILE, encoding="utf-8").drop(idx).to_csv(DATA_FILE, index=False, encoding="utf-8"); st.rerun()
     else: st.info("Все още няма записани транзакции за този месец.")
+
+    # ГЛОБАЛЕН БУТОН ЗА ИЗТРИВАНЕ НА ЦЕЛИЯ МЕСЕЦ
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    if st.button("🚨 ИЗТРИЙ ЦЕЛИЯ ТОЗИ МЕСЕЦ", type="primary", use_container_width=True):
+        pd.read_csv(DATA_FILE, encoding="utf-8")[lambda d: d["month_id"] != month_id].to_csv(DATA_FILE, index=False, encoding="utf-8")
+        pd.read_csv(SETTINGS_FILE, encoding="utf-8")[lambda d: d["month_id"] != month_id].to_csv(SETTINGS_FILE, index=False, encoding="utf-8")
+        pd.read_csv(BUDGETS_FILE, encoding="utf-8")[lambda d: d["month_id"] != month_id].to_csv(BUDGETS_FILE, index=False, encoding="utf-8")
+        st.session_state["current_month"] = None
+        st.rerun()
