@@ -198,7 +198,9 @@ else:
     month_id = st.session_state["current_month"]
     c_s = get_month_settings(month_id)
     is_month_finished = c_s.get("month_finished") == "Да"
-    initial_total, initial_cash, initial_debit, initial_revolut = float(c_s.get("initial_total", 0.0)), float(c_s.get("initial_cash", 0.0)), float(c_s.get("initial_debit", 0.0)), float(c_s.get("initial_revolut", 0.0))
+    initial_cash, initial_debit, initial_revolut = float(c_s.get("initial_cash", 0.0)), float(c_s.get("initial_debit", 0.0)), float(c_s.get("initial_revolut", 0.0))
+    # 🔥 Фикс: Изчисляваме автоматично тотала тук, за да може бутонът да го запише без грешка
+    initial_total = initial_cash + initial_debit + initial_revolut
 
     st.markdown(f"<div style='text-align: center; margin-bottom: 20px;'><h2>📊 Разчет: {month_id.replace('_', ' ')}</h2></div>", unsafe_allow_html=True)
     if st.button("🔙 НАЗАД КЪМ ГЛАВНО МЕНЮ", use_container_width=True): 
@@ -240,7 +242,8 @@ else:
                 st.warning("Парите ще бъдат изтеглени от Дебитната карта и прехвърлени в брой (Кеш).")
                 if st.button("💾 Потвърди тегленето от банкомат", use_container_width=True, type="primary", disabled=is_month_finished):
                     add_transaction(month_id, s_input, "Теглене от Банкомат", o_input.strip(), "💳 Дебитна карта", "atm_withdrawal")
-                    st.session_state["form_version"] += 1; st.rerun()
+                    st.session_state["form_version"] += 1
+                    st.rerun()
                     
             if st.button("❌ ОТКАЗ", use_container_width=True): st.session_state["form_version"] += 1; st.rerun()
             st.stop()
@@ -248,9 +251,13 @@ else:
     col_m1, col_m2 = st.columns(2)
     with col_m1:
         if not is_month_finished:
-            if st.button("🏁 Приключи Месечния Период", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Да", initial_total, initial_cash, initial_debit, initial_revolut); st.rerun()
+            if st.button("🏁 Приключи Месечния Период", use_container_width=True): 
+                save_month_settings(month_id, c_s.get("start_date", ""), "Да", initial_total, initial_cash, initial_debit, initial_revolut)
+                st.rerun()
         else:
-            if st.button("🔓 Отключи за Редакция", use_container_width=True): save_month_settings(month_id, c_s.get("start_date"), "Не", initial_total, initial_cash, initial_debit, initial_revolut); st.rerun()
+            if st.button("🔓 Отключи за Редакция", use_container_width=True): 
+                save_month_settings(month_id, c_s.get("start_date", ""), "Не", initial_total, initial_cash, initial_debit, initial_revolut)
+                st.rerun()
     with col_m2:
         if st.button("🎯 Настрой лимити по категории", use_container_width=True, disabled=is_month_finished):
             @st.dialog("Лимити за месеца")
@@ -259,6 +266,7 @@ else:
                 for cat in KATEGORII: new_budgets[cat] = st.number_input(f"{get_emoji(cat)} {cat} (EUR):", min_value=0.0, value=current_budgets.get(cat, 0.0))
                 if st.button("💾 Запази Лимитите", use_container_width=True, type="primary"): save_category_budgets(month_id, new_budgets); st.rerun()
             set_limits_modal()
+
     # Счетоводна логика за Разходи, Трансфери, Приходи и Теглене от Банкомат
     df_m = get_month_data(month_id)
     cash_out, debit_out, credit_out, revolut_out = 0.0, 0.0, 0.0, 0.0
