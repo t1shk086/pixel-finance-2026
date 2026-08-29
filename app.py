@@ -305,7 +305,7 @@ else:
             amt_color = "#49dc72" if is_inc else "#ff4b4b"
             with col_rec: st.markdown(f'<div style="background: rgba(255,255,255,0.02); padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;"><div><span style="font-weight:bold;">{get_emoji(r["category"]) if not is_inc else "💰"} {r["category"]}</span> <small style="color:#aaa;">({r["payment_method"]})</small><br><small style="color: #666;">📅 {r["date"]} — {r["description"]}</small></div><div style="color: {amt_color}; font-weight: bold; font-size: 16px;">{sign}€{r["amount"]:.2f}</div></div>', unsafe_allow_html=True)
             with col_del:
-                if st.button("🗑️", key=f"del_{idx}", disabled=is_month_finished, use_container_width=True):
+                
                 if st.button("🗑️", key=f"del_{idx}", disabled=is_month_finished, use_container_width=True):
                     pd.read_csv(DATA_FILE, encoding="utf-8").drop(idx).to_csv(DATA_FILE, index=False, encoding="utf-8")
                     st.rerun()
