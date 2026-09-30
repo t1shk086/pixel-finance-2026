@@ -2,15 +2,15 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Актуализация на Ценоразпис", layout="wide", page_icon="💰")
+st.set_page_config(page_title="Гъвкаво Търсене в Таблици", layout="wide", page_icon="🔄")
 
-st.title("💰 Мениджър за Промяна на Ценоразписи")
-st.write("Свържете кодовете с реалните имена на продуктите и редактирайте цените директно на екрана.")
+st.title("🔄 Гъвкаво свързване на таблици по ваш критерий")
+st.write("Качете вашите файлове и изберете ръчно коя колона от коя таблица да се търси и свързва.")
 
-# 1. Зареждане на файловете в страничния панел
-st.sidebar.header("1. Зареждане на таблици")
+# 1. Страничен панел за качване на файлове
+st.sidebar.header("1. Зареждане на файлове")
 uploaded_files = st.sidebar.file_uploader(
-    "Качете двата файла (.xlsx, .xls)", 
+    "Качете Excel файлове (.xlsx, .xls)", 
     type=["xlsx", "xls"], 
     accept_multiple_files=True
 )
@@ -20,7 +20,7 @@ dataframes = {}
 if uploaded_files:
     for uploaded_file in uploaded_files:
         try:
-            # Четем всичко като текст за безопасност на кодовете
+            # Четем всичко като текст, за да запазим точния вид на кодовете и данните
             df = pd.read_excel(uploaded_file, dtype=str)
             df.columns = [str(c).strip() for c in df.columns]
             dataframes[uploaded_file.name] = df
@@ -30,56 +30,71 @@ if uploaded_files:
     if len(dataframes) >= 2:
         file_list = list(dataframes.keys())
         
-        st.subheader("🔗 Настройка на връзката между таблиците")
-        col1, col2, col3 = st.columns(3)
+        st.subheader("🛠️ Настройка на критериите за търсене")
         
-        with col1:
-            price_file = st.selectbox("Избери файла с ЦЕНИТЕ (без имена):", file_list, index=0)
-        with col2:
-            names_file = st.selectbox("Избери файла с ИМЕНАТА (база данни):", file_list, index=1 if len(file_list)>1 else 0)
-        with col3:
-            join_col = st.text_input("Име на общата колона с Код (трябва да я има и в двата файла):", value="Код").strip()
-
-        # Изпълнение на автоматичното свързване
-        df_price = dataframes[price_file].copy()
-        df_names = dataframes[names_file].copy()
-
-        if join_col not in df_price.columns or join_col not in df_names.columns:
-            st.error(f"❌ Колоната '{join_col}' не беше намерена в някой от файловете! Проверете главните/малките букви.")
-        else:
-            # Свързваме по код (LEFT JOIN) - взимаме всичко от ценоразписа и прикачаме името от базата
-            # Суфиксите помагат ако има дублиращи се колони
-            merged_df = pd.merge(df_price, df_names, on=join_col, how='left', suffixes=('_цени', '_имена'))
+        # Разделяме екрана на две колони за избор на Източник и Референция
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            st.markdown("### 📄 ТАБЛИЦА 1 (Основна)")
+            main_f = st.selectbox("Изберете основната таблица:", file_list, key="main_file")
+            # Динамично взимаме колоните от избрания първи файл
+            main_cols = dataframes[main_f].columns.tolist()
+            main_search_col = st.selectbox("Търси стойностите от колона:", main_cols, key="main_col")
             
-            st.divider()
-            st.subheader("📝 Свързан ценоразпис (С възможност за промяна)")
-            st.info("💡 Можете да кликнете два пъти върху ВСЯКА клетка (цена, име или код) в таблицата по-долу и да я промените ръчно!")
-            
-            # Настройваме колоните за по-добра подредба (слагаме Код и Име най-отпред)
-            cols = list(merged_df.columns)
-            if join_col in cols:
-                cols.insert(0, cols.pop(cols.index(join_col)))
-            merged_df = merged_df[cols]
+        with col_right:
+            st.markdown("### 📄 ТАБЛИЦА 2 (Данни за проверка)")
+            ref_f = st.selectbox("Изберете таблицата, в която ще се търси:", file_list, key="ref_file")
+            # Динамично взимаме колоните от втория файл
+            ref_cols = dataframes[ref_f].columns.tolist()
+            ref_search_col = st.selectbox("Сравни ги със стойностите в колона:", ref_cols, key="ref_col")
 
-            # МНОГО ВАЖНО: st.data_editor позволява редакция в реално време!
+        st.divider()
+
+        # Проверка за еднакви файлове (предупреждение)
+        if main_f == ref_f:
+            st.warning("⚠️ Избрали сте един и същ файл за Таблица 1 и Таблица 2. Уверете се, че това е вашето желание.")
+
+        try:
+            df_main = dataframes[main_f].copy()
+            df_ref = dataframes[ref_f].copy()
+
+            # Правим свързването (LEFT JOIN) по избраните от потребителя колони
+            # suffixes помага да се разграничат еднакви колони, ако има такива
+            merged_df = pd.merge(
+                df_main, 
+                df_ref, 
+                left_on=main_search_col, 
+                right_on=ref_search_col, 
+                how='left', 
+                suffixes=('_табл1', '_табл2')
+            )
+            
+            st.subheader("🎯 Всички намерени резултати")
+            st.info("💡 Можете да редактирате всяка клетка директно в таблицата долу, ако се налага!")
+            
+            # Показваме интерактивната таблица за преглед и редакция
             edited_df = st.data_editor(merged_df, use_container_width=True, num_rows="dynamic")
 
             st.divider()
-            st.subheader("💾 Запис на готовия ценоразпис")
+            st.subheader("💾 Експорт на резултатите")
             
-            # Генериране на новия редактиран файл в паметта
+            # Подготовка за изтегляне на новата таблица
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 edited_df.to_excel(writer, index=False)
             
-            st.success("Всички промени са отразени! Можете да изтеглите финалния файл от бутона долу:")
             st.download_button(
-                label="📥 Изтегли АКТУАЛИЗИРАНИЯ Excel файл",
+                label="📥 Изтегли резултатите в нов Excel файл",
                 data=buffer.getvalue(),
-                file_name="Обновен_Ценоразпис_Финал.xlsx",
+                file_name="Резултати_Свързване.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+            
+        except Exception as e:
+            st.error(f"Възникна грешка при свързването на данните: {e}")
+            
     else:
-        st.info("💡 Моля, качете **поне 2 файла** в страничното меню, за да сглобим ценоразписа.")
+        st.info("💡 За да започнете, качете **поне 2 Excel файла** от страничното меню вляво.")
 else:
-    st.info("👋 Добре дошли! Качете вашите файлове от менюто вляво (бутона 📁 Добави Excel файлове).")
+    st.info("👋 Качете вашите Excel таблици от менюто вляво, за да изберете критериите за търсене.")
