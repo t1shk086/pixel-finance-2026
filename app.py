@@ -1,11 +1,18 @@
 import streamlit as st
 import pandas as pd
 import io
+from difflib import SequenceMatcher
 
-st.set_page_config(page_title="Прецизно Свързване", layout="wide", page_icon="🎯")
+st.set_page_config(page_title="Умно Свързване", layout="wide", page_icon="🤖")
 
-st.title("🎯 Прецизно извличане на данни между Excel таблици")
-st.write("Свържете две таблици по общ критерий и изберете ръчно кои точно колони да вземете от втората таблица.")
+st.title("🤖 Умно свързване на таблици с приблизително търсене (Fuzzy Match)")
+st.write("Свържете две таблици дори когато имената не съвпадат напълно (поради правописни грешки или съкращения).")
+
+# Функция за изчисляване на сходство между два текста (връща стойност от 0.0 до 1.0)
+def get_similarity(str1, str2):
+    if pd.isna(str1) or pd.isna(str2):
+        return 0.0
+    return SequenceMatcher(None, str(str1).strip().lower(), str(str2).strip().lower()).ratio()
 
 # 1. Страничен панел за качване на файлове
 st.sidebar.header("1. Зареждане на файлове")
@@ -20,7 +27,6 @@ dataframes = {}
 if uploaded_files:
     for uploaded_file in uploaded_files:
         try:
-            # Четем всичко като текст, за да запазим точния вид на кодовете (водещи нули и т.н.)
             df = pd.read_excel(uploaded_file, dtype=str)
             df.columns = [str(c).strip() for c in df.columns]
             dataframes[uploaded_file.name] = df
@@ -36,86 +42,103 @@ if uploaded_files:
         with col_left:
             main_f = st.selectbox("Основна таблица (Таблица 1):", file_list, key="main_file")
             main_cols = dataframes[main_f].columns.tolist()
-            main_search_col = st.selectbox("Вземи стойностите от колона:", main_cols, key="main_col")
+            main_search_col = st.selectbox("Вземи колона за търсене от Таблица 1:", main_cols, key="main_col")
             
         with col_right:
-            ref_f = st.selectbox("Таблица, от която ще взимаме данни (Таблица 2):", file_list, key="ref_file")
+            ref_f = st.selectbox("Таблица с данни за извличане (Таблица 2):", file_list, key="ref_file")
             ref_cols = dataframes[ref_f].columns.tolist()
-            ref_search_col = st.selectbox("Търси ги и ги сравни с колона:", ref_cols, key="ref_col")
+            ref_search_col = st.selectbox("Сравни я с колона от Таблица 2:", ref_cols, key="ref_col")
 
         st.divider()
 
-        if main_f == ref_f:
-            st.warning("⚠️ Избрали сте един и същ файл за Таблица 1 и Таблица 2.")
+        # Настройки за приблизителното търсене
+        st.subheader("🎛️ Стъпка 2: Настройки за интелигентно търсене")
         
-        # --- НОВАТА СЕКЦИЯ ЗА РЪЧЕН ИЗБОР НА КОЛОНИ ---
-        st.subheader("📋 Стъпка 2: Избор на данни за извличане")
+        use_fuzzy = st.checkbox("✅ Включи приблизително търсене (ако няма 100% точно съвпадение)", value=True)
         
-        # Списък с колони от Таблица 2, които потребителят може да избере (без самата колона за връзка)
-        available_cols_to_pull = [c for c in ref_cols if c != ref_search_col]
-        
-        if available_cols_to_pull:
-            selected_cols_to_pull = st.multiselect(
-                "Кои колони искате да вземете от Таблица 2 и да добавите към Таблица 1?",
-                options=available_cols_to_pull,
-                default=[available_cols_to_pull[0]] if available_cols_to_pull else []
+        threshold = 0.60
+        if use_fuzzy:
+            threshold = st.slider(
+                "Минимален процент на сходство за близки имена:", 
+                min_value=0.10, max_value=1.00, value=0.60, step=0.05,
+                help="0.60 означава 60% сходство. Колкото по-ниско е числото, толкова по-далечни имена ще свързва."
             )
-            
-            if not selected_cols_to_pull:
-                st.info("💡 Моля, изберете поне една колона от списъка по-горе, за да я извлечете.")
-            else:
-                try:
-                    df_main = dataframes[main_f].copy()
-                    df_ref = dataframes[ref_f].copy()
 
-                    # Взимаме от Таблица 2 само колоната за връзка + колоните, които потребителят е избрал
-                    cols_to_keep = [ref_search_col] + selected_cols_to_pull
-                    df_ref_filtered = df_ref[cols_to_keep]
-
-                    # Премахваме дубликати в Таблица 2 по търсената колона, за да не се размножават редовете в Таблица 1
-                    df_ref_filtered = df_ref_filtered.drop_duplicates(subset=[ref_search_col])
-
-                    # Извършваме свързването (VLOOKUP / LEFT JOIN)
-                    merged_df = pd.merge(
-                        df_main, 
-                        df_ref_filtered, 
-                        left_on=main_search_col, 
-                        right_on=ref_search_col, 
-                        how='left'
-                    )
-
-                    # Ако името на колоната за връзка в двете таблици е различно, може да премахнем дублиращата се колона от Таблица 2
-                    if main_search_col != ref_search_col and ref_search_col in merged_df.columns:
-                        merged_df = merged_df.drop(columns=[ref_search_col])
-
-                    st.divider()
-                    st.subheader("🎯 Резултат (Таблица 1 + Извлечените данни)")
-                    st.caption("Можете да редактирате клетките директно в таблицата, ако се налага промяна в цени или имена.")
-                    
-                    # Показваме интерактивния редактор
-                    edited_df = st.data_editor(merged_df, use_container_width=True, num_rows="dynamic")
-
-                    st.divider()
-                    st.subheader("💾 Запис на готовия ценоразпис")
-                    
-                    # Подготовка за изтегляне
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                        edited_df.to_excel(writer, index=False)
-                    
-                    st.download_button(
-                        label="📥 Изтегли актуализирания файл",
-                        data=buffer.getvalue(),
-                        file_name="Извлечени_Продукти.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                    
-                except Exception as e:
-                    st.error(f"Възникна грешка при свързването на данните: {e}")
+        # Избор на колони за извличане
+        available_cols_to_pull = [c for c in ref_cols if c != ref_search_col]
+        selected_cols_to_pull = st.multiselect(
+            "Кои колони искате да извлечете от Таблица 2?",
+            options=available_cols_to_pull,
+            default=[available_cols_to_pull[0]] if available_cols_to_pull else []
+        )
+        
+        if not selected_cols_to_pull:
+            st.info("💡 Моля, изберете поне една колона за извличане от списъка по-горе.")
         else:
-            st.error("Таблица 2 няма други колони за извличане освен колоната за връзка.")
-            
+            if st.button("🚀 Изпълни умно търсене и свързване"):
+                with st.spinner("Програмата сканира редовете за близки съвпадения... Моля, изчакайте."):
+                    try:
+                        df_main = dataframes[main_f].copy()
+                        df_ref = dataframes[ref_f].copy()
+
+                        # Подготвяме празни колони в Таблица 1 за новите данни
+                        for col in selected_cols_to_pull:
+                            df_main[col] = ""
+                        df_main["Процент_Сходство"] = ""
+
+                        # Алгоритъм за търсене ред по ред
+                        for idx_main, row_main in df_main.iterrows():
+                            val_main = str(row_main[main_search_col]).strip()
+                            
+                            best_match_idx = None
+                            best_score = 0.0
+                            
+                            # 1. Първо пробваме за Точно съвпадение
+                            exact_matches = df_ref[df_ref[ref_search_col].str.strip().str.lower() == val_main.lower()]
+                            
+                            if not exact_matches.empty:
+                                best_match_idx = exact_matches.index[0]
+                                best_score = 1.0
+                            elif use_fuzzy:
+                                # 2. Ако няма точно съвпадение, търсим най-близкото по алгоритъм
+                                for idx_ref, row_ref in df_ref.iterrows():
+                                    val_ref = str(row_ref[ref_search_col]).strip()
+                                    score = get_similarity(val_main, val_ref)
+                                    
+                                    if score > best_score and score >= threshold:
+                                        best_score = score
+                                        best_match_idx = idx_ref
+                            
+                            # Ако сме намерили съвпадение (точно или близко), прехвърляме данните
+                            if best_match_idx is not None:
+                                for col in selected_cols_to_pull:
+                                    df_main.at[idx_main, col] = df_ref.at[best_match_idx, col]
+                                df_main.at[idx_main, "Процент_Сходство"] = f"{int(best_score * 100)}%"
+                            else:
+                                df_main.at[idx_main, "Процент_Сходство"] = "Няма съвпадение"
+
+                        st.divider()
+                        st.subheader("🎯 Резултат от умното свързване")
+                        st.caption("В колона 'Процент_Сходство' виждате колко сигурна е програмата в съвпадението. Можете да коригирате всичко ръчно.")
+                        
+                        # Показваме интерактивната таблица
+                        edited_df = st.data_editor(df_main, use_container_width=True, num_rows="dynamic")
+
+                        # Подготовка за изтегляне
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            edited_df.to_excel(writer, index=False)
+                        
+                        st.download_button(
+                            label="📥 Изтегли готовия файл",
+                            data=buffer.getvalue(),
+                            file_name="Умно_Свързани_Продукти.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"Грешка по време на обработката: {e}")
     else:
-        st.info("💡 Моля, качете **поне 2 Excel файла** от страничното меню вляво.")
+        st.info("💡 Моля, качете поне 2 Excel файла от менюто вляво.")
 else:
-    st.info("👋 Качете вашите Excel таблици от менюто вляво, за да започнете.")
+    st.info("👋 Качете вашите ценоразписи и бази данни от менюто вляво, за да започнете.")
