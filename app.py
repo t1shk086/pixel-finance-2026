@@ -1,4 +1,4 @@
-import streamlit as pd
+import streamlit as st
 import pandas as pd
 
 # Настройки на страницата
@@ -9,7 +9,7 @@ st.write("Качете таблицата с константите и месе�
 
 # 1. Зареждане на таблицата с константите (Мерилките)
 st.sidebar.header("1. Константни величини")
-constants_file = st.sidebar.file_uploader("Качете файла с мерилките (Excel или CSV)", type=["xlsx", "csv"])
+constants_file = st.sidebar.file_uploader("Качете файла с meрилките (Excel или CSV)", type=["xlsx", "csv"])
 
 # Логика за обработка на константите
 db_metals = None
@@ -92,8 +92,8 @@ if sales_file is not None and db_metals is not None:
             kpi2.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
             kpi3.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
             
-            # Проверка за липсващи ЕК Номера
-            missing_ek = final_df[final_df['Cu_weight_per_km'] == 0 & final_df['Al_weight_per_km'] == 0]['Material'].unique()
+            # Проверка за липсващи ЕК Номера (Коригиран Pandas оператор)
+            missing_ek = final_df[(final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)]['Material'].unique()
             # Премахваме празни стрингове от проверката
             missing_ek = [x for x in missing_ek if x != 'nan' and x != '']
             if len(missing_ek) > 0:
