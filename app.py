@@ -70,11 +70,11 @@ if sales_file is not None and db_metals is not None:
             qty_col = st.selectbox("Колона с Количество (в МЕТРИ):", df_sales.columns)
         with col3:
             warehouse_default = [c for c in df_sales.columns if 'склад' in c.lower() or 'wh' in c.lower() or 'sklad' in c.lower()]
-            wh_index = df_sales.columns.get_loc(warehouse_default[0]) if warehouse_default else 0
+            wh_index = df_sales.columns.get_loc(warehouse_default) if warehouse_default else 0
             wh_col = st.selectbox("Колона за Склад:", df_sales.columns, index=int(wh_index))
         with col4:
             turnover_default = [c for c in df_sales.columns if any(x in c.lower() for x in ['оборот', 'стойност', 'сума', 'цена', 'total', 'net', 'amount'])]
-            to_index = df_sales.columns.get_loc(turnover_default[0]) if turnover_default else 0
+            to_index = df_sales.columns.get_loc(turnover_default) if turnover_default else 0
             to_col = st.selectbox("Колона за Оборот (Сума в лв.):", df_sales.columns, index=int(to_index))
             
         if st.button("🚀 Изчисли резултатите"):
@@ -127,7 +127,7 @@ if sales_file is not None and db_metals is not None:
             formatted_wh['Мед (Тона)'] = summary_wh['Продадена Мед (Тона)'].map('{:.3f}'.format)
             formatted_wh['Алуминий (Тона)'] = summary_wh['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
             
-            st.dataframe(formatted_wh, use_container_width=True, index=False)
+            st.dataframe(formatted_wh, use_container_width=True, hide_index=True)
             
             # --- ТОП 10 НАЙ-ПРОДАВАНИ КАБЕЛА ---
             st.write("### 🔝 Топ 10 Най-продавани Кабела")
@@ -140,7 +140,7 @@ if sales_file is not None and db_metals is not None:
             criterion_map = {
                 "Реализиран Оборот (лв.)": "Turnover_Clean",
                 "Продадена дължина (Метри)": "Quantity_m",
-                "Тонаж на Мед": "Продадена Мед (Тона)",
+                "Тонаж на Мед": "Продадена Мед (Тona)",
                 "Тонаж на Алуминий": "Продаден Алуминий (Тона)"
             }
             active_column = criterion_map[sort_criterion]
@@ -162,7 +162,7 @@ if sales_file is not None and db_metals is not None:
             top_10_formatted['Мед (Тона)'] = top_10['Продадена Мед (Тона)'].map('{:.3f}'.format)
             top_10_formatted['Алуминий (Тона)'] = top_10['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
             
-            st.dataframe(top_10_formatted, use_container_width=True, index=False)
+            st.dataframe(top_10_formatted, use_container_width=True, hide_index=True)
             
             # Предупреждения за неразпознати ЕК номера
             missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
@@ -193,3 +193,4 @@ if sales_file is not None and db_metals is not None:
         st.error(f"Грешка при обработката на продажбите: {e}")
 elif sales_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите от лявото меню.")
+
