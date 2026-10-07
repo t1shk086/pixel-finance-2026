@@ -263,3 +263,457 @@ if sales_file is not None and db_metals is not None:
         st.error(f"Грешка при обработката на данните: {e}")
 elif sales_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите от лявото меню.")
+
+# ==========================================
+# 3. ЗАРЕЖДАНЕ И АНАЛИЗ НА ДОСТАВКИТЕ
+# ==========================================
+st.sidebar.write("---")
+st.sidebar.header("2. Доставки")
+delivery_file = st.sidebar.file_uploader(
+    "Качете файла с доставки (Excel или CSV)",
+    type=["xlsx", "csv"],
+    key="delivery_file"
+)
+
+if delivery_file is not None:
+    try:
+        if delivery_file.name.endswith('.csv'):
+            df_delivery = pd.read_csv(delivery_file, dtype=str)
+        else:
+            df_delivery = pd.read_excel(delivery_file, dtype=str)
+
+        df_delivery.columns = df_delivery.columns.str.strip()
+
+        st.write("---")
+        st.write("## 🚚 2. Доставки")
+        st.write(
+            "Качете таблица с доставките. Приложението ще сравни доставеното "
+            "количество с продаденото количество от точка 1."
+        )
+
+        # Автоматично разпознаване на възможни колони
+        def find_column(columns, candidates):
+            for candidate in candidates:
+                if candidate in columns:
+                    return candidate
+            for col in columns:
+                col_clean = str(col).strip().lower()
+                for candidate in candidates:
+                    if str(candidate).strip().lower() in col_clean:
+                        return col
+            return columns[0] if len(columns) else None
+
+        delivery_name_default = find_column(
+            df_delivery.columns,
+            ['Материал', 'Наименование', 'Име', 'Име на кабела',
+             'Описание', 'Cable Name', 'Material']
+        )
+
+        delivery_code_default = find_column(
+            df_delivery.columns,
+            ['САП код', 'SAP код', 'SAP', 'ЕК Номер', 'ЕК номер',
+             'Материален номер', 'Material Code']
+        )
+
+        delivery_qty_default = find_column(
+            df_delivery.columns,
+            ['Количество', 'Колич.', 'Количеството', 'Количество (м)',
+             'Колич.по документ', 'Quantity', 'Qty', 'Метри', 'МЕТРИ']
+        )
+
+        delivery_date_default = find_column(
+            df_delivery.columns,
+            ['Дата', 'Дата на доставка', 'Дата документ', 'Дата на документа',
+             'Posting Date', 'Document Date', 'Delivery Date']
+        )
+
+        st.write("### 🔍 Настройка на колоните от файла с доставки")
+
+        dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+
+        with dcol1:
+            delivery_name_col = st.selectbox(
+                "Колона с име на продукта:",
+                df_delivery.columns,
+                index=int(df_delivery.columns.get_loc(delivery_name_default)),
+                key="delivery_name_col"
+            )
+
+        with dcol2:
+            delivery_code_col = st.selectbox(
+                "Колона със САП код:",
+                ["— Няма —"] + list(df_delivery.columns),
+                index=(list(df_delivery.columns).index(delivery_code_default) + 1)
+                if delivery_code_default in df_delivery.columns else 0,
+                key="delivery_code_col"
+            )
+
+        with dcol3:
+            delivery_qty_col = st.selectbox(
+                "Колона с доставено количество:",
+                df_delivery.columns,
+                index=int(df_delivery.columns.get_loc(delivery_qty_default)),
+                key="delivery_qty_col"
+            )
+
+        with dcol4:
+            delivery_date_options = ["— Няма дата —"] + list(df_delivery.columns)
+            delivery_date_index = (
+                delivery_date_options.index(delivery_date_default)
+                if delivery_date_default in delivery_date_options else 0
+            )
+            delivery_date_col = st.selectbox(
+                "Колона с дата:",
+                delivery_date_options,
+                index=delivery_date_index,
+                key="delivery_date_col"
+            )
+
+        # Подготовка на доставките
+        df_delivery = df_delivery[df_delivery[delivery_name_col].notna()].copy()
+        df_delivery = df_delivery[
+            df_delivery[delivery_name_col].astype(str).str.strip() != ''
+        ]
+
+        df_delivery['Delivery_Name_Clean'] = (
+            df_delivery[delivery_name_col].astype(str).str.strip()
+        )
+        df_delivery['Delivery_Qty_Clean'] = pd.to_numeric(
+            df_delivery[delivery_qty_col], errors='coerce'
+        ).fillna(0)
+
+        if delivery_code_col != "— Няма —":
+            df_delivery['Delivery_Code_Clean'] = (
+                df_delivery[delivery_code_col]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .str.replace('.0', '', regex=False)
+            )
+        else:
+            df_delivery['Delivery_Code_Clean'] = ""
+
+        # Период на доставките
+        if delivery_date_col != "— Няма дата —":
+            df_delivery['Delivery_Date_Clean'] = pd.to_datetime(
+                df_delivery[delivery_date_col],
+                errors='coerce',
+                dayfirst=True
+            )
+
+            valid_dates = df_delivery['Delivery_Date_Clean'].dropna()
+
+            if len(valid_dates) > 0:
+                min_date = valid_dates.min().date()
+                max_date = valid_dates.max().date()
+
+                st.write("### 📅 Период на доставките")
+
+                period_col1, period_col2 = st.columns(2)
+
+                with period_col1:
+                    delivery_period_start = st.date_input(
+                        "От дата:",
+                        value=min_date,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="delivery_period_start"
+                    )
+
+                with period_col2:
+                    delivery_period_end = st.date_input(
+                        "До дата:",
+                        value=max_date,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="delivery_period_end"
+                    )
+
+                if delivery_period_start > delivery_period_end:
+                    st.error("❌ Началната дата не може да бъде след крайната дата.")
+                    delivery_period_start = min_date
+                    delivery_period_end = max_date
+
+                delivery_filtered = df_delivery[
+                    (df_delivery['Delivery_Date_Clean'].dt.date >= delivery_period_start) &
+                    (df_delivery['Delivery_Date_Clean'].dt.date <= delivery_period_end)
+                ].copy()
+
+                st.caption(
+                    f"Показани доставки: {delivery_period_start.strftime('%d.%m.%Y')} "
+                    f"– {delivery_period_end.strftime('%d.%m.%Y')}"
+                )
+            else:
+                delivery_filtered = df_delivery.copy()
+                st.warning(
+                    "⚠️ Колоната за дата е избрана, но не успях да разпозная валидни дати. "
+                    "Ще бъдат използвани всички доставки от файла."
+                )
+        else:
+            delivery_filtered = df_delivery.copy()
+            st.info(
+                "ℹ️ Във файла няма използвана колона за дата. "
+                "Ще бъдат използвани всички доставки от файла."
+            )
+
+        # =====================================================
+        # Продажбите от точка 1
+        # =====================================================
+        if 'final_df' in locals():
+            sales_compare = final_df.copy()
+            sales_compare['Sales_Name_Clean'] = (
+                sales_compare['Cable_Name_Clean'].astype(str).str.strip()
+            )
+            sales_compare['Sales_Qty_Clean'] = pd.to_numeric(
+                sales_compare['Quantity_m'], errors='coerce'
+            ).fillna(0)
+
+            # Основна връзка по САП код, ако има такъв и в двата файла.
+            # Ако няма код в доставките, използваме името.
+            delivery_has_codes = (
+                delivery_code_col != "— Няма —" and
+                delivery_filtered['Delivery_Code_Clean'].astype(str).str.strip().ne('').any()
+            )
+
+            # Продажби по код
+            sales_by_code = sales_compare.groupby(
+                'Clean_Material', dropna=False
+            )['Sales_Qty_Clean'].sum().reset_index()
+            sales_by_code = sales_by_code.rename(
+                columns={
+                    'Clean_Material': 'Compare_Code',
+                    'Sales_Qty_Clean': 'Sold_Qty'
+                }
+            )
+
+            # Продажби по име
+            sales_by_name = sales_compare.groupby(
+                'Sales_Name_Clean', dropna=False
+            )['Sales_Qty_Clean'].sum().reset_index()
+            sales_by_name = sales_by_name.rename(
+                columns={
+                    'Sales_Name_Clean': 'Compare_Name',
+                    'Sales_Qty_Clean': 'Sold_Qty'
+                }
+            )
+
+            if delivery_has_codes:
+                delivery_summary = delivery_filtered.groupby(
+                    ['Delivery_Code_Clean', 'Delivery_Name_Clean'],
+                    dropna=False
+                )['Delivery_Qty_Clean'].sum().reset_index()
+
+                delivery_summary = delivery_summary.rename(
+                    columns={
+                        'Delivery_Code_Clean': 'Compare_Code',
+                        'Delivery_Name_Clean': 'Име',
+                        'Delivery_Qty_Clean': 'Доставено'
+                    }
+                )
+
+                delivery_summary = delivery_summary.merge(
+                    sales_by_code,
+                    on='Compare_Code',
+                    how='left'
+                )
+
+                # Ако кодът не е намерен в продажбите, пробваме по име.
+                delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
+
+                sales_name_lookup = sales_by_name.set_index('Compare_Name')['Sold_Qty'].to_dict()
+
+                missing_sales_mask = delivery_summary['Sold_Qty'] == 0
+                delivery_summary.loc[missing_sales_mask, 'Sold_Qty'] = (
+                    delivery_summary.loc[missing_sales_mask, 'Име']
+                    .map(sales_name_lookup)
+                    .fillna(0)
+                )
+
+            else:
+                delivery_summary = delivery_filtered.groupby(
+                    'Delivery_Name_Clean',
+                    dropna=False
+                )['Delivery_Qty_Clean'].sum().reset_index()
+
+                delivery_summary = delivery_summary.rename(
+                    columns={
+                        'Delivery_Name_Clean': 'Име',
+                        'Delivery_Qty_Clean': 'Доставено'
+                    }
+                )
+
+                delivery_summary = delivery_summary.merge(
+                    sales_by_name.rename(columns={'Compare_Name': 'Име'}),
+                    on='Име',
+                    how='left'
+                )
+
+            delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
+            delivery_summary['Доставено'] = pd.to_numeric(
+                delivery_summary['Доставено'], errors='coerce'
+            ).fillna(0)
+
+            delivery_summary['Остатък'] = (
+                delivery_summary['Доставено'] - delivery_summary['Sold_Qty']
+            )
+
+            # Ако има продажби на продукт, за който няма доставка в качения файл,
+            # добавяме го, за да може потребителят да види и отрицателен остатък.
+            if delivery_has_codes:
+                delivered_codes = set(
+                    delivery_summary['Compare_Code'].astype(str)
+                )
+
+                sales_extra = sales_by_code[
+                    ~sales_by_code['Compare_Code'].astype(str).isin(delivered_codes)
+                ].copy()
+
+                if not sales_extra.empty:
+                    sales_extra['Име'] = (
+                        sales_extra['Compare_Code']
+                        .map(
+                            sales_compare.drop_duplicates('Clean_Material')
+                            .set_index('Clean_Material')['Cable_Name_Clean']
+                            .to_dict()
+                        )
+                        .fillna(sales_extra['Compare_Code'])
+                    )
+                    sales_extra['Доставено'] = 0
+                    sales_extra['Остатък'] = -sales_extra['Sold_Qty']
+                    sales_extra = sales_extra[
+                        ['Compare_Code', 'Име', 'Доставено', 'Sold_Qty', 'Остатък']
+                    ]
+                    delivery_summary = pd.concat(
+                        [delivery_summary, sales_extra],
+                        ignore_index=True
+                    )
+            else:
+                delivered_names = set(delivery_summary['Име'].astype(str))
+                sales_extra = sales_by_name[
+                    ~sales_by_name['Compare_Name'].astype(str).isin(delivered_names)
+                ].copy()
+
+                if not sales_extra.empty:
+                    sales_extra['Име'] = sales_extra['Compare_Name']
+                    sales_extra['Доставено'] = 0
+                    sales_extra['Остатък'] = -sales_extra['Sold_Qty']
+                    sales_extra = sales_extra[
+                        ['Име', 'Доставено', 'Sold_Qty', 'Остатък']
+                    ]
+                    delivery_summary = pd.concat(
+                        [delivery_summary, sales_extra],
+                        ignore_index=True
+                    )
+
+            # Подреждане и форматиране
+            delivery_summary['Продадено'] = delivery_summary['Sold_Qty']
+
+            # Премахваме техническите колони
+            display_columns = ['Име', 'Доставено', 'Продадено', 'Остатък']
+            delivery_display = delivery_summary[display_columns].copy()
+
+            delivery_display = delivery_display.sort_values(
+                by='Доставено',
+                ascending=False
+            ).reset_index(drop=True)
+
+            # KPI
+            total_delivered = delivery_display['Доставено'].sum()
+            total_sold = delivery_display['Продадено'].sum()
+            total_remaining = delivery_display['Остатък'].sum()
+
+            st.write("### 📊 Доставки срещу продажби")
+            k1, k2, k3 = st.columns(3)
+
+            k1.metric(
+                "Общо доставено",
+                f"{total_delivered:,.0f}"
+            )
+            k2.metric(
+                "Общо продадено",
+                f"{total_sold:,.0f}"
+            )
+            k3.metric(
+                "Остатък",
+                f"{total_remaining:,.0f}"
+            )
+
+            st.write("### 📦 Справка по име")
+            st.caption(
+                "Доставено = доставеното количество за избрания период. "
+                "Продадено = количеството от точка 1. "
+                "Остатък = Доставено − Продадено."
+            )
+
+            formatted_delivery = delivery_display.copy()
+            formatted_delivery['Доставено'] = formatted_delivery['Доставено'].map(
+                '{:,.0f}'.format
+            )
+            formatted_delivery['Продадено'] = formatted_delivery['Продадено'].map(
+                '{:,.0f}'.format
+            )
+            formatted_delivery['Остатък'] = delivery_display['Остатък'].map(
+                '{:,.0f}'.format
+            )
+
+            st.dataframe(
+                formatted_delivery,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # Филтър по име
+            st.write("### 🔎 Проверка на конкретен продукт")
+
+            product_names = ["Всички"] + sorted(
+                delivery_display['Име'].dropna().astype(str).unique().tolist()
+            )
+
+            selected_product = st.selectbox(
+                "Избери име:",
+                product_names,
+                key="delivery_product_filter"
+            )
+
+            if selected_product != "Всички":
+                selected_row = delivery_display[
+                    delivery_display['Име'].astype(str) == selected_product
+                ]
+
+                if not selected_row.empty:
+                    row = selected_row.iloc[0]
+                    pc1, pc2, pc3 = st.columns(3)
+
+                    pc1.metric(
+                        "Доставено за периода",
+                        f"{row['Доставено']:,.0f}"
+                    )
+                    pc2.metric(
+                        "Продадено от т.1",
+                        f"{row['Продадено']:,.0f}"
+                    )
+                    pc3.metric(
+                        "Остатък",
+                        f"{row['Остатък']:,.0f}"
+                    )
+
+            @st.cache_data
+            def convert_delivery_df(df):
+                return df.to_csv(index=False).encode('utf-8-sig')
+
+            st.download_button(
+                label="📥 Изтегли справката за доставки (CSV)",
+                data=convert_delivery_df(delivery_display),
+                file_name="Справка_Доставки_Продажби.csv",
+                mime="text/csv",
+                key="download_delivery_report"
+            )
+
+        else:
+            st.warning(
+                "⚠️ За да се сравнят доставките с продажбите, първо трябва "
+                "да бъде качен файлът с продажби от точка 1."
+            )
+
+    except Exception as e:
+        st.error(f"Грешка при обработката на файла с доставки: {e}")
