@@ -9,7 +9,7 @@ st.write("Качете таблицата с константите и месе�
 
 # 1. Зареждане на таблицата с константите (Мерилките)
 st.sidebar.header("1. Константни величини")
-constants_file = st.sidebar.file_uploader("Качете файла с meрилките (Excel или CSV)", type=["xlsx", "csv"])
+constants_file = st.sidebar.file_uploader("Качете файла с мерилките (Excel или CSV)", type=["xlsx", "csv"])
 
 # Логика за обработка на константите
 db_metals = None
@@ -23,7 +23,7 @@ if constants_file is not None:
         # Почистване на имената на колоните от интервали
         df_const.columns = df_const.columns.str.strip()
         
-        # Преформатиране на таблицата, за да изкараме мед и алуминий на един ред за всеки ЕК номер
+        # Преформатиране на таблицата, за да изкараме мед и алуминий на один ред за всеки ЕК номер
         # NF key: 001 = Мед, 002 = Алуминий
         df_const['Material'] = df_const['Материал'].astype(str).str.strip()
         df_const['NF_key'] = df_const['NF key'].astype(str).str.strip()
@@ -92,12 +92,15 @@ if sales_file is not None and db_metals is not None:
             kpi2.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
             kpi3.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
             
-            # Проверка за липсващи ЕК Номера (Коригиран Pandas оператор)
-            missing_ek = final_df[(final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)]['Material'].unique()
-            # Премахваме празни стрингове от проверката
-            missing_ek = [x for x in missing_ek if x != 'nan' and x != '']
-            if len(missing_ek) > 0:
-                st.warning(f"⚠️ Следните ЕК номера от продажбите липсват в таблицата с константи и не са обсметнати: {', '.join(missing_ek[:10])}...")
+            # Проверка за липсващи ЕК Номера (КОРИГИРАНО за избягване на float грешката)
+            missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
+            missing_ek = final_df[missing_condition]['Material'].dropna().unique()
+            
+            # Принудително преобразуваме всичко в стрингове и премахваме системни празни стойности
+            missing_ek_str = [str(x) for x in missing_ek if str(x).lower() not in ['nan', '', 'none']]
+            
+            if len(missing_ek_str) > 0:
+                st.warning(f"⚠️ Следните ЕК номера от продажбите липсват в базата с константи и тонажите им са записани като 0: {', '.join(missing_ek_str[:10])}...")
             
             # Подредба и извеждане на крайния файл за изтегляне
             st.write("### 📄 Детайлна таблица с изчисления")
@@ -106,7 +109,7 @@ if sales_file is not None and db_metals is not None:
             # Бутон за сваляне на готовия резултат обратно в Excel
             @st.cache_data
             def convert_df(df):
-                return df.to_csv(index=False).encode('utf-8-sig') # utf-8-sig за правилно четене на кирилица в Excel
+                return df.to_csv(index=False).encode('utf-8-sig')
                 
             csv_data = convert_df(final_df)
             st.download_button(
