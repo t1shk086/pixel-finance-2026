@@ -25,7 +25,7 @@ if constants_file is not None:
         # Почистване на интервали в имената на колоните
         df_const.columns = df_const.columns.str.strip()
         
-        # Намиране на колоната за ЕК Номер (поддържа "Материал" или "Material")
+        # Намиране на колоните
         mat_col = 'Материал' if 'Материал' in df_const.columns else ('Material' if 'Material' in df_const.columns else None)
         nf_col = 'NF key' if 'NF key' in df_const.columns else ('NF_key' if 'NF_key' in df_const.columns else None)
         weight_col = 'Structural weight' if 'Structural weight' in df_const.columns else None
@@ -40,7 +40,7 @@ if constants_file is not None:
             copper = df_const[df_const['Clean_NF'] == '001'][['Clean_Material', 'Clean_Weight']].rename(columns={'Clean_Weight': 'Cu_weight_per_km'})
             aluminum = df_const[df_const['Clean_NF'] == '002'][['Clean_Material', 'Clean_Weight']].rename(columns={'Clean_Weight': 'Al_weight_per_km'})
             
-            # Премахване на дубликати, ако има такива
+            # Премахване на дубликати
             copper = copper.drop_duplicates(subset=['Clean_Material'])
             aluminum = aluminum.drop_duplicates(subset=['Clean_Material'])
             
@@ -62,7 +62,6 @@ sales_file = st.sidebar.file_uploader("Качете месечната табл�
 
 if sales_file is not None and db_metals is not None:
     try:
-        # Принудително прочитане на целия файл като стрингове първоначално за безопасност
         if sales_file.name.endswith('.csv'):
             df_sales = pd.read_csv(sales_file, dtype=str)
         else:
@@ -71,19 +70,23 @@ if sales_file is not None and db_metals is not None:
         df_sales.columns = df_sales.columns.str.strip()
         
         st.write("### 🔍 Настройка на колоните от файла с продажби")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             ek_col = st.selectbox("Изберете колоната с ЕК Номер:", df_sales.columns)
         with col2:
             qty_col = st.selectbox("Изберете колоната с Продадено количество (в МЕТРИ):", df_sales.columns)
+        with col3:
+            # Търсим автоматично колона "СКЛАД" или подобна, ако не я намери - потребителят избира ръчно
+            warehouse_default = [c for c in df_sales.columns if 'склад' in c.lower() or 'склад' in c.lower()]
+            wh_index = df_sales.columns.get_loc(warehouse_default[0]) if warehouse_default else 0
+            wh_col = st.selectbox("Изберете колоната за Склад:", df_sales.columns, index=int(wh_index))
             
-        if st.button("🚀 Изчисли тонажите"):
-            # Подготовка на данните за продажби - безопасно преобразуване в текст
+        if st.button("🚀 Изчисли тонажите и разбивката"):
+            # Подготовка на данните за продажби
             df_sales['Clean_Material'] = df_sales[ek_col].astype(str).str.strip().str.upper()
-            
-            # Изчистване на числовите стойности за дължината
             df_sales['Quantity_m'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
+            df_sales['Warehouse_Clean'] = df_sales[wh_col].astype(str).str.strip()
             
             # Обединяване (VLOOKUP) с константната база данни
             final_df = pd.merge(df_sales, db_metals, on='Clean_Material', how='left')
@@ -96,17 +99,38 @@ if sales_file is not None and db_metals is not None:
             final_df['Продадена Мед (Тона)'] = (final_df['Quantity_m'] * final_df['Cu_weight_per_km']) / 1000000
             final_df['Продаден Алуминий (Тона)'] = (final_df['Quantity_m'] * final_df['Al_weight_per_km']) / 1000000
             
-            # Изчисляване на крайната статистика
+            # Обща статистика
             total_cu = final_df['Продадена Мед (Тона)'].sum()
             total_al = final_df['Продаден Алуминий (Тона)'].sum()
             total_len = final_df['Quantity_m'].sum()
             
-            # Показване на KPI Карти
-            st.write("### 📈 Общи резултати за периода")
+            # Показване на общите KPI Карти
+            st.write("### 📈 Общи резултати за цялата компания")
             kpi1, kpi2, kpi3 = st.columns(3)
             kpi1.metric(label="Общо продадена Мед", value=f"{total_cu:.3f} тона")
             kpi2.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
             kpi3.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
+            
+            # --- НОВО: РАЗБИВКА ПО СКЛАДОВЕ ---
+            st.write("### 🏢 Обобщена разбивка по Складове")
+            
+            # Групиране по склад и сумиране на тонажите и метрите
+            summary_wh = final_df.groupby('Warehouse_Clean').agg({
+                'Quantity_m': 'sum',
+                'Продадена Мед (Тона)': 'sum',
+                'Продаден Алуминий (Тона)': 'sum'
+            }).reset_index()
+            
+            # Преименуване на колоните за по-красив изглед
+            summary_wh.columns = ['Склад', 'Продадена дължина (Метри)', 'Мед (Тона)', 'Алуминий (Тона)']
+            
+            # Форматиране на числата в таблицата по складове
+            summary_wh['Продадена дължина (Метри)'] = summary_wh['Продадена дължина (Метри)'].map('{:,.0f}'.format)
+            summary_wh['Мед (Тона)'] = summary_wh['Мед (Тона)'].map('{:.3f}'.format)
+            summary_wh['Алуминий (Тона)'] = summary_wh['Алуминий (Тона)'].map('{:.3f}'.format)
+            
+            st.dataframe(summary_wh, use_container_width=True)
+            # -----------------------------------
             
             # Проверка за липсващи ЕК Номера в номенклатурата
             missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
@@ -114,14 +138,12 @@ if sales_file is not None and db_metals is not None:
             missing_ek_str = [str(x) for x in missing_ek if str(x).lower() not in ['nan', '', 'none']]
             
             if len(missing_ek_str) > 0:
-                st.warning(f"⚠️ Общо {len(missing_ek_str)} ЕК номера от продажбите липсват в базата с константи и не са начислили тегло (записани с 0 тона):")
-                st.write(missing_ek_str[:15])  # Покажи първите 15 липсващи
+                st.warning(f"⚠️ Общо {len(missing_ek_str)} ЕК номера от продажбите липсват в базата с константи и тонажите им са записани като 0:")
+                st.write(missing_ek_str[:15])
             
-            # Извеждане на таблицата с резултатите
-            st.write("### 📄 Детайлна таблица с изчисления")
-            # Премахваме помощната временна колона преди показване
-            display_df = final_df.copy()
-            st.dataframe(display_df)
+            # Извеждане на пълната детайлна таблица
+            st.write("### 📄 Пълна детайлна таблица с продажби и изчисления")
+            st.dataframe(final_df)
             
             # Функция за изтегляне на резултата
             @st.cache_data
@@ -130,7 +152,7 @@ if sales_file is not None and db_metals is not None:
                 
             csv_data = convert_df(final_df)
             st.download_button(
-                label="📥 Изтегли пресметнатата таблица (Excel / CSV)",
+                label="📥 Изтегли детайлните резултати (Excel / CSV)",
                 data=csv_data,
                 file_name="Пресметнати_Продажби_Мед_Алуминий.csv",
                 mime="text/csv",
@@ -139,4 +161,4 @@ if sales_file is not None and db_metals is not None:
     except Exception as e:
         st.error(f"Грешка при обработката на продажбите: {e}")
 elif sales_file is not None and db_metals is None:
-    st.info("ℹ️ Моля, първо качете таблицата с константите (мерилките) от лявото меню.")
+    st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите от лявото меню.")
