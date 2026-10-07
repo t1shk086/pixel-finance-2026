@@ -70,11 +70,11 @@ if sales_file is not None and db_metals is not None:
             qty_col = st.selectbox("Колона с Количество (в МЕТРИ):", df_sales.columns)
         with col3:
             warehouse_default = [c for c in df_sales.columns if 'склад' in c.lower() or 'wh' in c.lower() or 'sklad' in c.lower()]
-            wh_index = df_sales.columns.get_loc(warehouse_default) if warehouse_default else 0
+            wh_index = df_sales.columns.get_loc(warehouse_default[0]) if warehouse_default else 0
             wh_col = st.selectbox("Колона за Склад:", df_sales.columns, index=int(wh_index))
         with col4:
             turnover_default = [c for c in df_sales.columns if any(x in c.lower() for x in ['оборот', 'стойност', 'сума', 'цена', 'total', 'net', 'amount'])]
-            to_index = df_sales.columns.get_loc(turnover_default) if turnover_default else 0
+            to_index = df_sales.columns.get_loc(turnover_default[0]) if turnover_default else 0
             to_col = st.selectbox("Колона за Оборот (Сума в лв.):", df_sales.columns, index=int(to_index))
             
         if st.button("🚀 Изчисли резултатите"):
@@ -108,7 +108,7 @@ if sales_file is not None and db_metals is not None:
             kpi3.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
             kpi4.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
             
-            # --- РАЗБИВКА ПО СКЛАДОВЕ (С ОБОРОТ) ---
+            # --- РАЗБИВКА ПО СКЛАДОВЕ ---
             st.write("### 🏢 Обобщена разбивка по Складове")
             summary_wh = final_df.groupby('Warehouse_Clean').agg({
                 'Turnover_Clean': 'sum',
@@ -117,16 +117,17 @@ if sales_file is not None and db_metals is not None:
                 'Продаден Алуминий (Тона)': 'sum'
             }).reset_index()
             
-            summary_wh.columns = ['Склад', 'Оборот (лв.)', 'Продадена дължина (Метри)', 'Мед (Тона)', 'Алуминий (Тона)']
-            summary_wh = summary_wh.sort_values(by='Оборот (лв.)', ascending=False)
+            summary_wh = summary_wh.sort_values(by='Turnover_Clean', ascending=False)
             
-            formatted_wh = summary_wh.copy()
-            formatted_wh['Оборот (лв.)'] = formatted_wh['Оборот (лв.)'].map('{:,.2f}'.format)
-            formatted_wh['Продадена Дължина (Метри)'] = formatted_wh['Продадена дължина (Метри)'].map('{:,.0f}'.format)
-            formatted_wh['Мед (Тона)'] = formatted_wh['Мед (Тона)'].map('{:.3f}'.format)
-            formatted_wh['Алуминий (Тона)'] = formatted_wh['Алуминий (Тона)'].map('{:.3f}'.format)
+            # Безопасно преименуване и форматиране
+            formatted_wh = pd.DataFrame()
+            formatted_wh['Склад'] = summary_wh['Warehouse_Clean']
+            formatted_wh['Оборот (лв.)'] = summary_wh['Turnover_Clean'].map('{:,.2f}'.format)
+            formatted_wh['Продадена Дължина (Метри)'] = summary_wh['Quantity_m'].map('{:,.0f}'.format)
+            formatted_wh['Мед (Тона)'] = summary_wh['Продадена Мед (Тона)'].map('{:.3f}'.format)
+            formatted_wh['Алуминий (Тона)'] = summary_wh['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
             
-            st.dataframe(formatted_wh, use_container_width=True)
+            st.dataframe(formatted_wh, use_container_width=True, index=False)
             
             # --- ТОП 10 НАЙ-ПРОДАВАНИ КАБЕЛА ---
             st.write("### 🔝 Топ 10 Най-продавани Кабела")
@@ -152,16 +153,16 @@ if sales_file is not None and db_metals is not None:
             }).reset_index()
             
             top_10 = top_products.sort_values(by=active_column, ascending=False).head(10).reset_index(drop=True)
-            top_10.index = top_10.index + 1
-            top_10.columns = ['ЕК Номер', 'Общ Оборот (лв.)', 'Общо Метри', 'Мед (Тона)', 'Алуминий (Тона)']
             
-            top_10_formatted = top_10.copy()
-            top_10_formatted['Общ Оборот (лв.)'] = top_10_formatted['Общ Оборот (лв.)'].map('{:,.2f}'.format)
-            top_10_formatted['Общо Метри'] = top_10_formatted['Общо Метри'].map('{:,.0f}'.format)
-            top_10_formatted['Мед (Тона)'] = top_10_formatted['Мед (Тона)'].map('{:.3f}'.format)
-            top_10_formatted['Алуминий (Тона)'] = top_10_formatted['Алуминий (Тона)'].map('{:.3f}'.format)
+            top_10_formatted = pd.DataFrame()
+            top_10_formatted['Позиция'] = top_10.index + 1
+            top_10_formatted['ЕК Номер'] = top_10['Clean_Material']
+            top_10_formatted['Общ Оборот (лв.)'] = top_10['Turnover_Clean'].map('{:,.2f}'.format)
+            top_10_formatted['Общо Метри'] = top_10['Quantity_m'].map('{:,.0f}'.format)
+            top_10_formatted['Мед (Тона)'] = top_10['Продадена Мед (Тона)'].map('{:.3f}'.format)
+            top_10_formatted['Алуминий (Тона)'] = top_10['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
             
-            st.table(top_10_formatted)
+            st.dataframe(top_10_formatted, use_container_width=True, index=False)
             
             # Предупреждения за неразпознати ЕК номера
             missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
