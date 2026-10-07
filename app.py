@@ -88,7 +88,7 @@ if sales_file is not None and db_metals is not None:
             name_col = st.selectbox("Колона за Име на кабела:", df_sales.columns, index=int(df_sales.columns.get_loc(default_name)))
         if 'Клиент' in df_sales.columns or default_client in df_sales.columns:
             with col6:
-                client_col = st.selectbox("Колона за  Клиент:", df_sales.columns, index=int(df_sales.columns.get_loc(default_client)))
+                client_col = st.selectbox("Колона за Клиент:", df_sales.columns, index=int(df_sales.columns.get_loc(default_client)))
         else:
             client_col = None
             
@@ -133,7 +133,6 @@ if sales_file is not None and db_metals is not None:
         kpi2.metric(label="Общо продадена Мед", value=f"{total_cu:.3f} тона")
         kpi3.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
         kpi4.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
-        
         # --- РАЗБИВКА ПО СКЛАДОВЕ ---
         st.write("### 🏢 Обобщена разбивка по Складове")
         summary_wh = final_df.groupby('Warehouse_Clean').agg({
@@ -201,7 +200,7 @@ if sales_file is not None and db_metals is not None:
         
         st.write("---")
         # --- ТОП 10 КЛИЕНТИ ---
-        st.write("### 👥 Топ 10 Клиенти")
+        st.write("### 👥 Топ 10  Клиенти")
         
         c_filter_wh = st.selectbox("Филтрирай ТОП 10 Клиенти по склад:", list_warehouses, key="wh_clients")
         client_sort_criterion = st.radio(
@@ -236,32 +235,32 @@ if sales_file is not None and db_metals is not None:
         st.dataframe(top_10_clients_fmt, use_container_width=True, hide_index=True)
         
         # Предупреждения за липсващи кодове
-            # Предупреждения за липсващи кодове
-            missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
-            missing_ek = final_df[missing_condition]['Clean_Material'].dropna().unique()
-            missing_ek_str = [str(x) for x in missing_ek if str(x).lower() not in ['nan', '', 'none']]
+        missing_condition = (final_df['Cu_weight_per_km'] == 0) & (final_df['Al_weight_per_km'] == 0)
+        missing_ek = final_df[missing_condition]['Clean_Material'].dropna().unique()
+        missing_ek_str = [str(x) for x in missing_ek if str(x).lower() not in ['nan', '', 'none']]
+        
+        if len(missing_ek_str) > 0:
+            st.warning(f"⚠️ Общо {len(missing_ek_str)} SAP кода от продажбите липсват в таблицата с константи (сметнати с 0 кг):")
+            st.write(missing_ek_str[:10])
+        
+        # Пълна таблица
+        st.write("### 📄 Пълна детайлна таблица")
+        st.dataframe(final_df)
+        
+        @st.cache_data
+        def convert_df(df):
+            return df.to_csv(index=False).encode('utf-8-sig')
             
-            if len(missing_ek_str) > 0:
-                st.warning(f"⚠️ Общо {len(missing_ek_str)} SAP кода от продажбите липсват в таблицата с константи (сметнати с 0 кг):")
-                st.write(missing_ek_str[:10])
-            
-            # Пълна таблица
-            st.write("### 📄 Пълна детайлна таблица")
-            st.dataframe(final_df)
-            
-            @st.cache_data
-            def convert_df(df):
-                return df.to_csv(index=False).encode('utf-8-sig')
-                
-            csv_data = convert_df(final_df)
-            st.download_button(
-                label="📥 Изтегли детайлните резултати (CSV)",
-                data=csv_data,
-                file_name="Изчислени_Продажби_Кабели.csv",
-                mime="text/csv",
-            )
+        csv_data = convert_df(final_df)
+        st.download_button(
+            label="📥 Изтегли детайлните резултати (CSV)",
+            data=csv_data,
+            file_name="Изчислени_Продажби_Кабели.csv",
+            mime="text/csv",
+        )
             
     except Exception as e:
         st.error(f"Грешка при обработката на данните: {e}")
 elif sales_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите от лявото меню.")
+
