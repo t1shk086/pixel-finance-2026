@@ -59,32 +59,43 @@ if sales_file is not None and db_metals is not None:
         else:
             df_sales = pd.read_excel(sales_file, dtype=str)
             
+        # Почистване на интервали в заглавията на колоните
         df_sales.columns = df_sales.columns.str.strip()
         
+        # Автоматично напасване към специфичните заглавия от вашия файл
+        default_ek = 'САП код' if 'САП код' in df_sales.columns else df_sales.columns[0]
+        default_qty = 'Колич.по документ' if 'Колич.по документ' in df_sales.columns else df_sales.columns[0]
+        default_wh = 'Склад' if 'Склад' in df_sales.columns else df_sales.columns[0]
+        default_to = 'Всичко' if 'Всичко' in df_sales.columns else df_sales.columns[0]
+
         st.write("### 🔍 Настройка на колоните от файла с продажби")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            ek_col = st.selectbox("Колона с ЕК Номер:", df_sales.columns)
+            ek_col = st.selectbox("Колона с ЕК Номер:", df_sales.columns, index=int(df_sales.columns.get_loc(default_ek)))
         with col2:
-            qty_col = st.selectbox("Колона с Количество (в МЕТРИ):", df_sales.columns)
+            qty_col = st.selectbox("Колона с Количество (в МЕТРИ):", df_sales.columns, index=int(df_sales.columns.get_loc(default_qty)))
         with col3:
-            warehouse_default = [c for c in df_sales.columns if 'склад' in c.lower() or 'wh' in c.lower() or 'sklad' in c.lower()]
-            wh_index = df_sales.columns.get_loc(warehouse_default) if warehouse_default else 0
-            wh_col = st.selectbox("Колона за Склад:", df_sales.columns, index=int(wh_index))
+            wh_col = st.selectbox("Колона за Склад:", df_sales.columns, index=int(df_sales.columns.get_loc(default_wh)))
         with col4:
-            turnover_default = [c for c in df_sales.columns if any(x in c.lower() for x in ['оборот', 'стойност', 'сума', 'цена', 'total', 'net', 'amount'])]
-            to_index = df_sales.columns.get_loc(turnover_default) if turnover_default else 0
-            to_col = st.selectbox("Колона за Оборот (Сума в лв.):", df_sales.columns, index=int(to_index))
+            to_col = st.selectbox("Колона за Оборот (Сума):", df_sales.columns, index=int(df_sales.columns.get_loc(default_to)))
             
         if st.button("🚀 Изчисли резултатите"):
+            # Почистване от празни редове и системни редове в края на извлечението (напр. "Записи:351")
+            df_sales = df_sales[df_sales[ek_col].notna()]
+            df_sales = df_sales[~df_sales[ek_col].astype(str).str.contains('Записи:', case=False, na=False)]
+            df_sales = df_sales[df_sales[ek_col].astype(str).str.strip() != '']
+            
             # Подготовка на данните за продажби
             df_sales['Clean_Material'] = df_sales[ek_col].astype(str).str.strip().str.upper()
             df_sales['Quantity_m'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
-            df_sales['Warehouse_Clean'] = df_sales[wh_col].astype(str).str.strip()
             df_sales['Turnover_Clean'] = pd.to_numeric(df_sales[to_col], errors='coerce').fillna(0)
+            df_sales['Warehouse_Clean'] = df_sales[wh_col].astype(str).str.strip()
             
-            # Обединяване (VLOOKUP) с константната база данни
+            # Филтриране на редове, които са изцяло празни след чистенето на числа
+            df_sales = df_sales[df_sales['Clean_Material'] != 'NAN']
+            
+            # Обединяване (VLOOKUP) с константната база данни по почистения ЕК номер
             final_df = pd.merge(df_sales, db_metals, on='Clean_Material', how='left')
             
             final_df['Cu_weight_per_km'] = final_df['Cu_weight_per_km'].fillna(0)
@@ -94,7 +105,7 @@ if sales_file is not None and db_metals is not None:
             final_df['Продадена Мед (Тона)'] = (final_df['Quantity_m'] * final_df['Cu_weight_per_km']) / 1000000
             final_df['Продаден Алуминий (Тона)'] = (final_df['Quantity_m'] * final_df['Al_weight_per_km']) / 1000000
             
-            # Обща статистика
+            # Обща статистика за KPI картите
             total_cu = final_df['Продадена Мед (Тона)'].sum()
             total_al = final_df['Продаден Алуминий (Тона)'].sum()
             total_len = final_df['Quantity_m'].sum()
@@ -103,7 +114,7 @@ if sales_file is not None and db_metals is not None:
             # Показване на общите KPI Карти
             st.write("### 📈 Общи резултати за компанията")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric(label="Общ Оборот", value=f"{total_turnover:,.2f} лв.")
+            kpi1.metric(label="Общ Оборот", value=f"{total_turnover:,.2f}")
             kpi2.metric(label="Общо продадена Мед", value=f"{total_cu:.3f} тона")
             kpi3.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
             kpi4.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
@@ -119,10 +130,10 @@ if sales_file is not None and db_metals is not None:
             
             summary_wh = summary_wh.sort_values(by='Turnover_Clean', ascending=False)
             
-            # Безопасно преименуване и форматиране
+            # Създаване на крайна таблица с фиксирани заглавия за интерфейса
             formatted_wh = pd.DataFrame()
             formatted_wh['Склад'] = summary_wh['Warehouse_Clean']
-            formatted_wh['Оборот (лв.)'] = summary_wh['Turnover_Clean'].map('{:,.2f}'.format)
+            formatted_wh['Оборот'] = summary_wh['Turnover_Clean'].map('{:,.2f}'.format)
             formatted_wh['Продадена Дължина (Метри)'] = summary_wh['Quantity_m'].map('{:,.0f}'.format)
             formatted_wh['Мед (Тона)'] = summary_wh['Продадена Мед (Тона)'].map('{:.3f}'.format)
             formatted_wh['Алуминий (Тона)'] = summary_wh['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
@@ -133,14 +144,14 @@ if sales_file is not None and db_metals is not None:
             st.write("### 🔝 Топ 10 Най-продавани Кабела")
             sort_criterion = st.radio(
                 "Класирай по критерий:",
-                ["Реализиран Оборот (лв.)", "Продадена дължина (Метри)", "Тонаж на Мед", "Тонаж на Алуминий"],
+                ["Реализиран Оборот", "Продадена дължина (Метри)", "Тонаж на Мед", "Тонаж на Алуминий"],
                 horizontal=True
             )
             
             criterion_map = {
-                "Реализиран Оборот (лв.)": "Turnover_Clean",
+                "Реализиран Оборот": "Turnover_Clean",
                 "Продадена дължина (Метри)": "Quantity_m",
-                "Тонаж на Мед": "Продадена Мед (Тona)",
+                "Тонаж на Мед": "Продадена Мед (Тона)",
                 "Тонаж на Алуминий": "Продаден Алуминий (Тона)"
             }
             active_column = criterion_map[sort_criterion]
@@ -157,7 +168,7 @@ if sales_file is not None and db_metals is not None:
             top_10_formatted = pd.DataFrame()
             top_10_formatted['Позиция'] = top_10.index + 1
             top_10_formatted['ЕК Номер'] = top_10['Clean_Material']
-            top_10_formatted['Общ Оборот (лв.)'] = top_10['Turnover_Clean'].map('{:,.2f}'.format)
+            top_10_formatted['Общ Оборот'] = top_10['Turnover_Clean'].map('{:,.2f}'.format)
             top_10_formatted['Общо Метри'] = top_10['Quantity_m'].map('{:,.0f}'.format)
             top_10_formatted['Мед (Тона)'] = top_10['Продадена Мед (Тона)'].map('{:.3f}'.format)
             top_10_formatted['Алуминий (Тона)'] = top_10['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
