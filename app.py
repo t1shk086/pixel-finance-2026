@@ -1,144 +1,122 @@
-import streamlit as st
+import streamlit as pd
 import pandas as pd
-import io
-from difflib import SequenceMatcher
 
-st.set_page_config(page_title="Умно Свързване", layout="wide", page_icon="🤖")
+# Настройки на страницата
+st.set_page_config(page_title="Измерване на Продажбите на Мед и Алуминий", layout="wide")
 
-st.title("🤖 Умно свързване на таблици с приблизително търсене (Fuzzy Match)")
-st.write("Свържете две таблици дори когато имената не съвпадат напълно (поради правописни грешки или съкращения).")
+st.title("📊 Система за анализ на метални тонажи в продажбите на кабели")
+st.write("Качете таблицата с константите и месечната таблица с продажби, за да пресметнете тонажите на Мед и Алуминий.")
 
-# Функция за изчисляване на сходство между два текста (връща стойност от 0.0 до 1.0)
-def get_similarity(str1, str2):
-    if pd.isna(str1) or pd.isna(str2):
-        return 0.0
-    return SequenceMatcher(None, str(str1).strip().lower(), str(str2).strip().lower()).ratio()
+# 1. Зареждане на таблицата с константите (Мерилките)
+st.sidebar.header("1. Константни величини")
+constants_file = st.sidebar.file_uploader("Качете файла с мерилките (Excel или CSV)", type=["xlsx", "csv"])
 
-# 1. Страничен панел за качване на файлове
-st.sidebar.header("1. Зареждане на файлове")
-uploaded_files = st.sidebar.file_uploader(
-    "Качете вашите Excel файлове:", 
-    type=["xlsx", "xls"], 
-    accept_multiple_files=True
-)
-
-dataframes = {}
-
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        try:
-            df = pd.read_excel(uploaded_file, dtype=str)
-            df.columns = [str(c).strip() for c in df.columns]
-            dataframes[uploaded_file.name] = df
-        except Exception as e:
-            st.sidebar.error(f"Грешка при четене на {uploaded_file.name}: {e}")
-
-    if len(dataframes) >= 2:
-        file_list = list(dataframes.keys())
-        
-        st.subheader("🛠️ Стъпка 1: Настройка на критерия за съвпадение")
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            main_f = st.selectbox("Основна таблица (Таблица 1):", file_list, key="main_file")
-            main_cols = dataframes[main_f].columns.tolist()
-            main_search_col = st.selectbox("Вземи колона за търсене от Таблица 1:", main_cols, key="main_col")
-            
-        with col_right:
-            ref_f = st.selectbox("Таблица с данни за извличане (Таблица 2):", file_list, key="ref_file")
-            ref_cols = dataframes[ref_f].columns.tolist()
-            ref_search_col = st.selectbox("Сравни я с колона от Таблица 2:", ref_cols, key="ref_col")
-
-        st.divider()
-
-        # Настройки за приблизителното търсене
-        st.subheader("🎛️ Стъпка 2: Настройки за интелигентно търсене")
-        
-        use_fuzzy = st.checkbox("✅ Включи приблизително търсене (ако няма 100% точно съвпадение)", value=True)
-        
-        threshold = 0.60
-        if use_fuzzy:
-            threshold = st.slider(
-                "Минимален процент на сходство за близки имена:", 
-                min_value=0.10, max_value=1.00, value=0.60, step=0.05,
-                help="0.60 означава 60% сходство. Колкото по-ниско е числото, толкова по-далечни имена ще свързва."
-            )
-
-        # Избор на колони за извличане
-        available_cols_to_pull = [c for c in ref_cols if c != ref_search_col]
-        selected_cols_to_pull = st.multiselect(
-            "Кои колони искате да извлечете от Таблица 2?",
-            options=available_cols_to_pull,
-            default=[available_cols_to_pull[0]] if available_cols_to_pull else []
-        )
-        
-        if not selected_cols_to_pull:
-            st.info("💡 Моля, изберете поне една колона за извличане от списъка по-горе.")
+# Логика за обработка на константите
+db_metals = None
+if constants_file is not None:
+    try:
+        if constants_file.name.endswith('.csv'):
+            df_const = pd.read_csv(constants_file)
         else:
-            if st.button("🚀 Изпълни умно търсене и свързване"):
-                with st.spinner("Програмата сканира редовете за близки съвпадения... Моля, изчакайте."):
-                    try:
-                        df_main = dataframes[main_f].copy()
-                        df_ref = dataframes[ref_f].copy()
+            df_const = pd.read_excel(constants_file)
+            
+        # Почистване на имената на колоните от интервали
+        df_const.columns = df_const.columns.str.strip()
+        
+        # Преформатиране на таблицата, за да изкараме мед и алуминий на един ред за всеки ЕК номер
+        # NF key: 001 = Мед, 002 = Алуминий
+        df_const['Material'] = df_const['Материал'].astype(str).str.strip()
+        df_const['NF_key'] = df_const['NF key'].astype(str).str.strip()
+        df_const['Structural_weight'] = pd.to_numeric(df_const['Structural weight'], errors='coerce').fillna(0)
+        
+        # Извличане на теглата за Мед (001) и Алуминий (002)
+        copper = df_const[df_const['NF_key'] == '001'][['Material', 'Structural_weight']].rename(columns={'Structural_weight': 'Cu_weight_per_km'})
+        aluminum = df_const[df_const['NF_key'] == '002'][['Material', 'Structural_weight']].rename(columns={'Structural_weight': 'Al_weight_per_km'})
+        
+        # Обединяване в една базова референтна таблица
+        db_metals = pd.merge(copper, aluminum, on='Material', how='outer').fillna(0)
+        st.success("✅ Таблицата с константите е заредена успешно!")
+        
+        with st.expander("Преглед на базата данни с константи (Тегла в кг/км)"):
+            st.dataframe(db_metals)
+            
+    except Exception as e:
+        st.error(f"Грешка при обработката на константите: {e}")
 
-                        # Подготвяме празни колони в Таблица 1 за новите данни
-                        for col in selected_cols_to_pull:
-                            df_main[col] = ""
-                        df_main["Процент_Сходство"] = ""
+# 2. Зареждане на месечните продажби
+st.sidebar.header("2. Месечни продажби")
+sales_file = st.sidebar.file_uploader("Качете месечната таблица с продажби (Excel или CSV)", type=["xlsx", "csv"])
 
-                        # Алгоритъм за търсене ред по ред
-                        for idx_main, row_main in df_main.iterrows():
-                            val_main = str(row_main[main_search_col]).strip()
-                            
-                            best_match_idx = None
-                            best_score = 0.0
-                            
-                            # 1. Първо пробваме за Точно съвпадение
-                            exact_matches = df_ref[df_ref[ref_search_col].str.strip().str.lower() == val_main.lower()]
-                            
-                            if not exact_matches.empty:
-                                best_match_idx = exact_matches.index[0]
-                                best_score = 1.0
-                            elif use_fuzzy:
-                                # 2. Ако няма точно съвпадение, търсим най-близкото по алгоритъм
-                                for idx_ref, row_ref in df_ref.iterrows():
-                                    val_ref = str(row_ref[ref_search_col]).strip()
-                                    score = get_similarity(val_main, val_ref)
-                                    
-                                    if score > best_score and score >= threshold:
-                                        best_score = score
-                                        best_match_idx = idx_ref
-                            
-                            # Ако сме намерили съвпадение (точно или близко), прехвърляме данните
-                            if best_match_idx is not None:
-                                for col in selected_cols_to_pull:
-                                    df_main.at[idx_main, col] = df_ref.at[best_match_idx, col]
-                                df_main.at[idx_main, "Процент_Сходство"] = f"{int(best_score * 100)}%"
-                            else:
-                                df_main.at[idx_main, "Процент_Сходство"] = "Няма съвпадение"
-
-                        st.divider()
-                        st.subheader("🎯 Резултат от умното свързване")
-                        st.caption("В колона 'Процент_Сходство' виждате колко сигурна е програмата в съвпадението. Можете да коригирате всичко ръчно.")
-                        
-                        # Показваме интерактивната таблица
-                        edited_df = st.data_editor(df_main, use_container_width=True, num_rows="dynamic")
-
-                        # Подготовка за изтегляне
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            edited_df.to_excel(writer, index=False)
-                        
-                        st.download_button(
-                            label="📥 Изтегли готовия файл",
-                            data=buffer.getvalue(),
-                            file_name="Умно_Свързани_Продукти.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                        
-                    except Exception as e:
-                        st.error(f"Грешка по време на обработката: {e}")
-    else:
-        st.info("💡 Моля, качете поне 2 Excel файла от менюто вляво.")
-else:
-    st.info("👋 Качете вашите ценоразписи и бази данни от менюто вляво, за да започнете.")
+if sales_file is not None and db_metals is not None:
+    try:
+        if sales_file.name.endswith('.csv'):
+            df_sales = pd.read_csv(sales_file)
+        else:
+            df_sales = pd.read_excel(sales_file)
+            
+        df_sales.columns = df_sales.columns.str.strip()
+        
+        st.write("### 🔍 Настройка на колоните от файла с продажби")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            ek_col = st.selectbox("Изберете колоната с ЕК Номер:", df_sales.columns)
+        with col2:
+            qty_col = st.selectbox("Изберете колоната с Продадено количество (в МЕТРИ):", df_sales.columns)
+            
+        if st.button("🚀 Изчисли тонажите"):
+            # Подготовка на данните за продажби
+            df_sales['Material'] = df_sales[ek_col].astype(str).str.strip()
+            df_sales['Quantity_m'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
+            
+            # Марджиране (VLOOKUP) с константите по ЕК Номер (Material)
+            final_df = pd.merge(df_sales, db_metals, on='Material', how='left')
+            
+            # Ако има ЕК номера, които липсват в базата с константи, ги запълваме с 0
+            final_df['Cu_weight_per_km'] = final_df['Cu_weight_per_km'].fillna(0)
+            final_df['Al_weight_per_km'] = final_df['Al_weight_per_km'].fillna(0)
+            
+            # Изчисления в ТОНОВЕ: (Метри * Кг/Км) / (1000 * 1000)
+            final_df['Продадена Мед (Тона)'] = (final_df['Quantity_m'] * final_df['Cu_weight_per_km']) / 1000000
+            final_df['Продаден Алуминий (Тона)'] = (final_df['Quantity_m'] * final_df['Al_weight_per_km']) / 1000000
+            
+            # Общи суми за месеца
+            total_cu = final_df['Продадена Мед (Тона)'].sum()
+            total_al = final_df['Продаден Алуминий (Тона)'].sum()
+            total_len = final_df['Quantity_m'].sum()
+            
+            # Визуализация на резултатите (Красиви карти)
+            st.write("### 📈 Общи резултати за периода")
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric(label="Общо продадена Мед", value=f"{total_cu:.3f} тона")
+            kpi2.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
+            kpi3.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
+            
+            # Проверка за липсващи ЕК Номера
+            missing_ek = final_df[final_df['Cu_weight_per_km'] == 0 & final_df['Al_weight_per_km'] == 0]['Material'].unique()
+            # Премахваме празни стрингове от проверката
+            missing_ek = [x for x in missing_ek if x != 'nan' and x != '']
+            if len(missing_ek) > 0:
+                st.warning(f"⚠️ Следните ЕК номера от продажбите липсват в таблицата с константи и не са обсметнати: {', '.join(missing_ek[:10])}...")
+            
+            # Подредба и извеждане на крайния файл за изтегляне
+            st.write("### 📄 Детайлна таблица с изчисления")
+            st.dataframe(final_df)
+            
+            # Бутон за сваляне на готовия резултат обратно в Excel
+            @st.cache_data
+            def convert_df(df):
+                return df.to_csv(index=False).encode('utf-8-sig') # utf-8-sig за правилно четене на кирилица в Excel
+                
+            csv_data = convert_df(final_df)
+            st.download_button(
+                label="📥 Изтегли резултатите в Excel (CSV формат)",
+                data=csv_data,
+                file_name="Calculated_Cable_Sales_Tonnages.csv",
+                mime="text/csv",
+            )
+            
+    except Exception as e:
+        st.error(f"Грешка при обработката на продажбите: {e}")
+elif sales_file is not None and db_metals is None:
+    st.info("ℹ️ Моля, първо качете таблицата с константите от лявото меню.")
