@@ -143,7 +143,7 @@ if deliveries_file is not None and final_df is not None:
         with d_col1:
             d_m = st.selectbox("Колона с ЕК/САП Код (Доставки):", df_del.columns, index=df_del.columns.get_loc(del_mat_col[0]) if del_mat_col else 0)
         with d_col2:
-            d_q = st.selectbox("Колона с Доставено количество (Метри):", df_sales.columns, index=df_del.columns.get_loc(del_qty_col[0]) if del_qty_col else 0)
+            d_q = st.selectbox("Колона с Доставено количество (Метри):", df_del.columns, index=df_del.columns.get_loc(del_qty_col[0]) if del_qty_col else 0)
         with d_col3:
             d_d = st.selectbox("Колона с Дата на Доставка:", df_del.columns, index=df_del.columns.get_loc(del_date_col[0]) if del_date_col else 0)
         with d_col4:
@@ -155,12 +155,19 @@ if deliveries_file is not None and final_df is not None:
         df_del['Del_Date'] = df_del[d_d].astype(str).str.strip()
         df_del['Del_Warehouse'] = df_del[d_w].astype(str).str.strip()
         
+        # Премахване на дефектни/празни редове
+        df_del = df_del[df_del['Clean_Material'] != 'NAN']
+        df_del = df_del[df_del['Clean_Material'] != '']
+        
         # Крос-анализ по избран артикул
         st.write("---")
         st.write("### 🎯 Картон на артикула: Сравнение Доставки vs Продажби")
         
-        # Списък с уникални артикули, които съществуват или в продажбите, или в доставките
-        available_materials = sorted(list(set(final_df['Clean_Material'].unique()) | set(df_del['Clean_Material'].unique())))
+        # Подсигуряване, че няма float стойности при сортиране на списъка
+        sales_mats = [str(x) for x in final_df['Clean_Material'].dropna().unique() if str(x) != '']
+        del_mats = [str(x) for x in df_del['Clean_Material'].dropna().unique() if str(x) != '']
+        available_materials = sorted(list(set(sales_mats) | set(del_mats)))
+        
         selected_art = st.selectbox("Изберете ЕК/САП код за детайлна проверка:", available_materials)
         
         if selected_art:
@@ -220,3 +227,4 @@ if deliveries_file is not None and final_df is not None:
         st.error(f"Грешка при обработката на доставките: {e}")
 elif sales_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите.")
+
