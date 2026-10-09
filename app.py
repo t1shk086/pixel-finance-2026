@@ -321,6 +321,18 @@ if delivery_file is not None:
              'Колич.по документ', 'Quantity', 'Qty', 'Метри', 'МЕТРИ']
         )
 
+        delivery_article_default = find_column(
+            df_delivery.columns,
+            ['Артикулен номер', 'Артикул', 'Номер артикул', 'Материален номер',
+             'Article Number', 'Article No', 'Item Number', 'Item No', 'SKU']
+        )
+
+        delivery_warehouse_default = find_column(
+            df_delivery.columns,
+            ['Склад', 'Склад получател', 'Място на съхранение', 'Warehouse',
+             'Storage Location', 'Plant']
+        )
+
         delivery_date_default = find_column(
             df_delivery.columns,
             ['Дата', 'Дата на доставка', 'Дата документ', 'Дата на документа',
@@ -329,7 +341,7 @@ if delivery_file is not None:
 
         st.write("### 🔍 Настройка на колоните от файла с доставки")
 
-        dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+        dcol1, dcol2, dcol3, dcol4, dcol5, dcol6 = st.columns(6)
 
         with dcol1:
             delivery_name_col = st.selectbox(
@@ -357,10 +369,36 @@ if delivery_file is not None:
             )
 
         with dcol4:
+            delivery_article_options = ["— Няма —"] + list(df_delivery.columns)
+            delivery_article_index = (
+                delivery_article_options.index(delivery_article_default) + 1
+                if delivery_article_default in df_delivery.columns else 0
+            )
+            delivery_article_col = st.selectbox(
+                "Колона с артикулен номер:",
+                delivery_article_options,
+                index=delivery_article_index,
+                key="delivery_article_col"
+            )
+
+        with dcol5:
+            delivery_warehouse_options = ["— Всички складове —"] + list(df_delivery.columns)
+            delivery_warehouse_index = (
+                delivery_warehouse_options.index(delivery_warehouse_default) + 1
+                if delivery_warehouse_default in df_delivery.columns else 0
+            )
+            delivery_warehouse_col = st.selectbox(
+                "Колона със склад:",
+                delivery_warehouse_options,
+                index=delivery_warehouse_index,
+                key="delivery_warehouse_col"
+            )
+
+        with dcol6:
             delivery_date_options = ["— Няма дата —"] + list(df_delivery.columns)
             delivery_date_index = (
-                delivery_date_options.index(delivery_date_default)
-                if delivery_date_default in delivery_date_options else 0
+                delivery_date_options.index(delivery_date_default) + 1
+                if delivery_date_default in df_delivery.columns else 0
             )
             delivery_date_col = st.selectbox(
                 "Колона с дата:",
@@ -392,6 +430,21 @@ if delivery_file is not None:
             )
         else:
             df_delivery['Delivery_Code_Clean'] = ""
+
+        if delivery_article_col != "— Няма —":
+            df_delivery['Delivery_Article_Clean'] = (
+                df_delivery[delivery_article_col].astype(str).str.strip().str.upper()
+                .str.replace(r'\\.0$', '', regex=True)
+            )
+        else:
+            df_delivery['Delivery_Article_Clean'] = ""
+
+        if delivery_warehouse_col != "— Всички складове —":
+            df_delivery['Delivery_Warehouse_Clean'] = (
+                df_delivery[delivery_warehouse_col].astype(str).str.strip()
+            )
+        else:
+            df_delivery['Delivery_Warehouse_Clean'] = "Всички складове"
 
         # Период на доставките
         if delivery_date_col != "— Няма дата —":
@@ -456,6 +509,21 @@ if delivery_file is not None:
                 "Ще бъдат използвани всички доставки от файла."
             )
 
+        # Филтър по склад за доставките
+        if delivery_warehouse_col != "— Всички складове —":
+            warehouse_values = sorted(
+                df_delivery['Delivery_Warehouse_Clean'].dropna().astype(str).unique().tolist()
+            )
+            selected_delivery_warehouse = st.selectbox(
+                "Филтрирай доставките по склад:",
+                ["Всички складове"] + warehouse_values,
+                key="delivery_warehouse_filter"
+            )
+            if selected_delivery_warehouse != "Всички складове":
+                delivery_filtered = delivery_filtered[
+                    delivery_filtered['Delivery_Warehouse_Clean'] == selected_delivery_warehouse
+                ].copy()
+
         # =====================================================
         # Продажбите от точка 1
         # =====================================================
@@ -497,7 +565,46 @@ if delivery_file is not None:
                 }
             )
 
-            if delivery_has_codes:
+            if delivery_article_col != "— Няма —":
+                # Основна справка по артикулен номер.
+                delivery_summary = delivery_filtered.groupby(
+                    ['Delivery_Article_Clean', 'Delivery_Name_Clean'],
+                    dropna=False
+                )['Delivery_Qty_Clean'].sum().reset_index()
+
+                delivery_summary = delivery_summary.rename(
+                    columns={
+                        'Delivery_Article_Clean': 'Compare_Article',
+                        'Delivery_Name_Clean': 'Име',
+                        'Delivery_Qty_Clean': 'Доставено'
+                    }
+                )
+
+                # Продажбите от т.1 нямат гарантирана артикулна колона,
+                # затова приравняваме артикула към ЕК/САП кода само ако
+                # артикулният номер съвпада с кода в продажбите.
+                sales_by_article = sales_by_code.rename(
+                    columns={'Compare_Code': 'Compare_Article'}
+                )
+                delivery_summary = delivery_summary.merge(
+                    sales_by_article,
+                    on='Compare_Article',
+                    how='left'
+                )
+                delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
+
+                # Резервно съпоставяне по име само за артикулите без съвпадение.
+                sales_name_lookup = sales_by_name.set_index('Compare_Name')['Sold_Qty'].to_dict()
+                missing_sales_mask = delivery_summary['Sold_Qty'] == 0
+                delivery_summary.loc[missing_sales_mask, 'Sold_Qty'] = (
+                    delivery_summary.loc[missing_sales_mask, 'Име']
+                    .map(sales_name_lookup)
+                    .fillna(0)
+                )
+
+                delivery_summary['Compare_Code'] = delivery_summary['Compare_Article']
+
+            elif delivery_has_codes:
                 delivery_summary = delivery_filtered.groupby(
                     ['Delivery_Code_Clean', 'Delivery_Name_Clean'],
                     dropna=False
@@ -610,6 +717,13 @@ if delivery_file is not None:
 
             # Запазваме ЕК/САП кода за търсене, когато е наличен.
             # Ако файлът с доставки няма код, оставяме колоната празна.
+            if 'Compare_Article' in delivery_summary.columns:
+                delivery_summary['Артикулен номер'] = (
+                    delivery_summary['Compare_Article'].astype(str).str.strip()
+                )
+            else:
+                delivery_summary['Артикулен номер'] = ""
+
             if 'Compare_Code' in delivery_summary.columns:
                 delivery_summary['ЕК код'] = (
                     delivery_summary['Compare_Code'].astype(str).str.strip()
@@ -617,7 +731,7 @@ if delivery_file is not None:
             else:
                 delivery_summary['ЕК код'] = ""
 
-            display_columns = ['ЕК код', 'Име', 'Доставено', 'Продадено', 'Остатък']
+            display_columns = ['Артикулен номер', 'ЕК код', 'Име', 'Доставено', 'Продадено', 'Остатък']
             delivery_display = delivery_summary[display_columns].copy()
 
             delivery_display = delivery_display.sort_values(
@@ -648,9 +762,11 @@ if delivery_file is not None:
 
             st.write("### 📦 Справка по име")
             st.caption(
-                "Доставено = доставеното количество за избрания период. "
+                "Доставено = доставеното количество за избрания период и избрания склад (ако е избран). "
                 "Продадено = количеството от точка 1. "
-                "Остатък = Доставено − Продадено."
+                "Остатък = Доставено − Продадено. "
+                "Съпоставянето по артикулен номер работи, когато номерът съвпада с кода в продажбите; "
+                "ако форматите са различни, трябва да се добави съответстваща артикулна колона и в продажбите."
             )
 
             formatted_delivery = delivery_display.copy()
