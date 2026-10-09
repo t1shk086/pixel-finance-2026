@@ -1,11 +1,24 @@
 import streamlit as st
 import pandas as pd
+import re
 
 # Настройки на страницата
 st.set_page_config(page_title="Измерване на Продажбите на Мед и Алуминий", layout="wide")
 
 st.title("📊 Система за анализ на продажбите на кабели")
 st.write("Качете таблицата с константите и месечната таблица с продажби, за да пресметнете тонажите, оборотите, топ продуктите и топ клиентите.")
+
+# ==========================================
+# ⚙️ ФУНКЦИЯ ЗА НОРМАЛИЗИРАНЕ НА СКЛАДОВЕ
+# ==========================================
+def clean_warehouse_name(val):
+    if pd.isna(val) or not str(val).strip():
+        return "Неизвестен склад"
+    s = str(val).strip()
+    # Премахва начални цифри, префикси, тирета, двоеточия и интервали (напр. "01 София" -> "София")
+    s = re.sub(r'^[0-9\s\-_:\.]+', '', s).strip()
+    # Ако след премахването на цифрите не остане нищо (напр. складът е само "0001"), връщаме оригиналния чист код
+    return s if s else str(val).strip()
 
 # ==========================================
 # 1. ЗАРЕЖДАНЕ НА КОНСТАНТИТЕ (МЕРИЛКИТЕ)
@@ -102,7 +115,10 @@ if sales_file is not None and db_metals is not None:
         df_sales['Clean_Material'] = df_sales[ek_col].astype(str).str.strip().str.upper()
         df_sales['Quantity_m'] = pd.to_numeric(df_sales[qty_col], errors='coerce').fillna(0)
         df_sales['Turnover_Clean'] = pd.to_numeric(df_sales[to_col], errors='coerce').fillna(0)
-        df_sales['Warehouse_Clean'] = df_sales[wh_col].astype(str).str.strip()
+        
+        # 🛠️ Нормализиране името на склада
+        df_sales['Warehouse_Clean'] = df_sales[wh_col].apply(clean_warehouse_name)
+        
         df_sales['Cable_Name_Clean'] = df_sales[name_col].astype(str).str.strip()
         if client_col:
             df_sales['Client_Clean'] = df_sales[client_col].astype(str).str.strip()
@@ -442,9 +458,8 @@ if delivery_file is not None:
             df_delivery['Delivery_Article_Clean'] = ""
 
         if delivery_warehouse_col != "— Всички складове —":
-            df_delivery['Delivery_Warehouse_Clean'] = (
-                df_delivery[delivery_warehouse_col].astype(str).str.strip()
-            )
+            # 🛠️ Нормализиране името на склада и в доставките
+            df_delivery['Delivery_Warehouse_Clean'] = df_delivery[delivery_warehouse_col].apply(clean_warehouse_name)
         else:
             df_delivery['Delivery_Warehouse_Clean'] = "Всички складове"
 
@@ -536,7 +551,7 @@ if delivery_file is not None:
             # Ако в доставките е избран конкретен склад, филтрираме продажбите по същия склад
             if delivery_warehouse_col != "— Всички складове —" and selected_delivery_warehouse != "Всички складове":
                 sales_compare = sales_compare[
-                    sales_compare['Warehouse_Clean'].astype(str).str.strip() == selected_delivery_warehouse
+                    sales_compare['Warehouse_Clean'] == selected_delivery_warehouse
                 ].copy()
 
             sales_compare['Sales_Name_Clean'] = (
@@ -717,7 +732,7 @@ if delivery_file is not None:
                     )
 
             # -----------------------------------------------------
-            # 🔍 НОВА ФУНКЦИОНАЛНОСТ: ТЪРСЕНЕ ПО ЕК НОМЕР / САП КОД
+            # 🔍 ТЪРСЕНЕ ПО ЕК НОМЕР / САП КОД ИЛИ ИМЕ
             # -----------------------------------------------------
             st.write("---")
             st.write("### 🔎 Търсене на конкретен кабел по ЕК номер / САП код или име")
@@ -768,7 +783,7 @@ if delivery_file is not None:
             )
 
             # -----------------------------------------------------
-            # 🏢 НОВА ФУНКЦИОНАЛНОСТ: СПРАВКА ПО ВСИЧКИ 4 СКЛАДА
+            # 🏢 СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ
             # -----------------------------------------------------
             if delivery_warehouse_col != "— Всички складове —":
                 st.write("---")
@@ -787,7 +802,7 @@ if delivery_file is not None:
                 merged_wh = pd.merge(del_by_wh, sales_by_wh, on=['Code', 'Warehouse'], how='outer').fillna(0)
                 merged_wh['Остатък'] = merged_wh['Доставено'] - merged_wh['Продадено']
 
-                # Създаване на Pivot масиви за всеки склад
+                # Создаване на Pivot масиви за всеки склад
                 pivot_del = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
                 pivot_sales = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
                 pivot_bal = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
