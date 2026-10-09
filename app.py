@@ -528,7 +528,7 @@ if delivery_file is not None:
                 ].copy()
 
         # =====================================================
-        # Продажбите от точка 1 (С КОРИГИРАНО ФИЛТРИРАНЕ ПО СКЛАД)
+        # Продажбите от точка 1
         # =====================================================
         if 'final_df' in locals():
             sales_compare = final_df.copy()
@@ -552,7 +552,7 @@ if delivery_file is not None:
                 delivery_filtered['Delivery_Code_Clean'].astype(str).str.strip().ne('').any()
             )
 
-            # Продажби по код (само за избрания склад)
+            # Продажби по код
             sales_by_code = sales_compare.groupby(
                 'Clean_Material', dropna=False
             )['Sales_Qty_Clean'].sum().reset_index()
@@ -563,7 +563,7 @@ if delivery_file is not None:
                 }
             )
 
-            # Продажби по име (само за избрания склад)
+            # Продажби по име
             sales_by_name = sales_compare.groupby(
                 'Sales_Name_Clean', dropna=False
             )['Sales_Qty_Clean'].sum().reset_index()
@@ -669,7 +669,7 @@ if delivery_file is not None:
                 delivery_summary['Доставено'] - delivery_summary['Sold_Qty']
             )
 
-            # Добавяне на продукти с продажби в избрания склад, за които няма доставено количество
+            # Добавяне на продукти с продажби, за които няма доставено количество
             if delivery_has_codes:
                 delivered_codes = set(
                     delivery_summary['Compare_Code'].astype(str)
@@ -716,7 +716,27 @@ if delivery_file is not None:
                         ignore_index=True
                     )
 
-            # Покажи за кой склад се отнасят данните в заглавието
+            # -----------------------------------------------------
+            # 🔍 НОВА ФУНКЦИОНАЛНОСТ: ТЪРСЕНЕ ПО ЕК НОМЕР / САП КОД
+            # -----------------------------------------------------
+            st.write("---")
+            st.write("### 🔎 Търсене на конкретен кабел по ЕК номер / САП код или име")
+            search_query = st.text_input("Въведете ЕК Номер, САП код или част от името на кабела:", "").strip().upper()
+
+            if search_query:
+                mask_code = delivery_summary['Compare_Code'].astype(str).str.upper().str.contains(search_query, na=False) if 'Compare_Code' in delivery_summary.columns else False
+                mask_name = delivery_summary['Име'].astype(str).str.upper().str.contains(search_query, na=False)
+                search_results = delivery_summary[mask_code | mask_name]
+
+                if not search_results.empty:
+                    st.success(f"Намерени {len(search_results)} съвпадения за '{search_query}':")
+                    st.dataframe(search_results, use_container_width=True, hide_index=True)
+                else:
+                    st.warning(f"⚠️ Не са намерени резултати за '{search_query}'.")
+
+            # -----------------------------------------------------
+            # ГЛАВНА ТАБЛИЦА С ДАННИ
+            # -----------------------------------------------------
             wh_label = f"за склад '{selected_delivery_warehouse}'" if selected_delivery_warehouse != "Всички складове" else "за всички складове"
             st.write(f"### 📊 Сравнение: Доставени vs Продадени количества ({wh_label})")
 
@@ -746,6 +766,40 @@ if delivery_file is not None:
                 file_name=f"Доставки_vs_Продажби_{selected_delivery_warehouse}.csv",
                 mime="text/csv",
             )
+
+            # -----------------------------------------------------
+            # 🏢 НОВА ФУНКЦИОНАЛНОСТ: СПРАВКА ПО ВСИЧКИ 4 СКЛАДА
+            # -----------------------------------------------------
+            if delivery_warehouse_col != "— Всички складове —":
+                st.write("---")
+                st.write("### 🏢 Подробна матрична справка по Всички Складове (Доставки, Продажби и Остатъци)")
+
+                # Групиране на доставките по Код/Име и Склад
+                code_col_del = 'Delivery_Code_Clean' if delivery_code_col != "— Няма —" else 'Delivery_Name_Clean'
+                del_by_wh = df_delivery.groupby([code_col_del, 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
+                del_by_wh.columns = ['Code', 'Warehouse', 'Доставено']
+
+                # Групиране на продажбите по Код и Склад
+                sales_by_wh = final_df.groupby(['Clean_Material', 'Warehouse_Clean'])['Quantity_m'].sum().reset_index()
+                sales_by_wh.columns = ['Code', 'Warehouse', 'Продадено']
+
+                # Обединяване
+                merged_wh = pd.merge(del_by_wh, sales_by_wh, on=['Code', 'Warehouse'], how='outer').fillna(0)
+                merged_wh['Остатък'] = merged_wh['Доставено'] - merged_wh['Продадено']
+
+                # Създаване на Pivot масиви за всеки склад
+                pivot_del = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
+                pivot_sales = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
+                pivot_bal = merged_wh.pivot_table(index='Code', columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
+
+                pivot_del.columns = [f"Доставено ({c})" for c in pivot_del.columns]
+                pivot_sales.columns = [f"Продадено ({c})" for c in pivot_sales.columns]
+                pivot_bal.columns = [f"Остатък ({c})" for c in pivot_bal.columns]
+
+                # Комбинирана матрица
+                multi_wh_df = pd.concat([pivot_del, pivot_sales, pivot_bal], axis=1).fillna(0)
+                st.dataframe(multi_wh_df, use_container_width=True)
+
         else:
             st.info("ℹ️ За да видите сравнението между доставено и продадено, моля качете и месечния файл с продажби от точка 1.")
 
