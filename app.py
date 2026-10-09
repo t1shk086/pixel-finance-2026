@@ -608,8 +608,16 @@ if delivery_file is not None:
             # Подреждане и форматиране
             delivery_summary['Продадено'] = delivery_summary['Sold_Qty']
 
-            # Премахваме техническите колони
-            display_columns = ['Име', 'Доставено', 'Продадено', 'Остатък']
+            # Запазваме ЕК/САП кода за търсене, когато е наличен.
+            # Ако файлът с доставки няма код, оставяме колоната празна.
+            if 'Compare_Code' in delivery_summary.columns:
+                delivery_summary['ЕК код'] = (
+                    delivery_summary['Compare_Code'].astype(str).str.strip()
+                )
+            else:
+                delivery_summary['ЕК код'] = ""
+
+            display_columns = ['ЕК код', 'Име', 'Доставено', 'Продадено', 'Остатък']
             delivery_display = delivery_summary[display_columns].copy()
 
             delivery_display = delivery_display.sort_values(
@@ -662,26 +670,40 @@ if delivery_file is not None:
                 hide_index=True
             )
 
-            # Филтър по име
+            # Търсене на продукт по ЕК код
             st.write("### 🔎 Проверка на конкретен продукт")
+            search_ek_code = st.text_input(
+                "Въведи ЕК код:",
+                placeholder="Например: 123456",
+                key="delivery_ek_code_search"
+            ).strip().upper()
 
-            product_names = ["Всички"] + sorted(
-                delivery_display['Име'].dropna().astype(str).unique().tolist()
-            )
+            if search_ek_code:
+                code_values = delivery_display['ЕК код'].astype(str).str.strip().str.upper()
+                selected_row = delivery_display[code_values == search_ek_code]
 
-            selected_product = st.selectbox(
-                "Избери име:",
-                product_names,
-                key="delivery_product_filter"
-            )
+                # Ако файлът с доставки няма кодове, търсим кода в продажбите
+                # и използваме намереното име, за да намерим реда в справката.
+                if selected_row.empty and not delivery_has_codes and 'final_df' in locals():
+                    sales_code_rows = sales_compare[
+                        sales_compare['Clean_Material'].astype(str).str.strip().str.upper()
+                        == search_ek_code
+                    ]
+                    if not sales_code_rows.empty:
+                        matching_names = sales_code_rows['Sales_Name_Clean'].dropna().astype(str).unique()
+                        selected_row = delivery_display[
+                            delivery_display['Име'].astype(str).isin(matching_names)
+                        ]
 
-            if selected_product != "Всички":
-                selected_row = delivery_display[
-                    delivery_display['Име'].astype(str) == selected_product
-                ]
-
-                if not selected_row.empty:
-                    row = selected_row.iloc[0]
+                if selected_row.empty:
+                    st.info(
+                        "Не е намерен продукт с този ЕК код. Проверете кода или дали "
+                        "файлът с доставките съдържа правилната колона за код."
+                    )
+                else:
+                    # Ако има няколко реда за един код, показваме общите количества.
+                    row = selected_row[['Доставено', 'Продадено', 'Остатък']].sum()
+                    st.write(f"**Продукт:** {', '.join(selected_row['Име'].astype(str).unique())}")
                     pc1, pc2, pc3 = st.columns(3)
 
                     pc1.metric(
@@ -696,6 +718,8 @@ if delivery_file is not None:
                         "Остатък",
                         f"{row['Остатък']:,.0f}"
                     )
+            else:
+                st.caption("Въведи ЕК кода в полето, за да видиш доставено, продадено и остатък.")
 
             @st.cache_data
             def convert_delivery_df(df):
