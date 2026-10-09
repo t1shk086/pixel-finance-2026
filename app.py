@@ -532,9 +532,8 @@ if delivery_file is not None:
                 sales_compare['Quantity_m'], errors='coerce'
             ).fillna(0)
 
-            # --- СЪПОСТАВКА ПО АРТИКУЛЕН КОД ---
+            # --- СЪПОСТАВКА ПО ИМЕ / АРТИКУЛЕН КОД ---
             if delivery_article_col != "— Няма —":
-                # Групираме доставките САМО по Артикулен код и Име
                 delivery_summary = delivery_filtered.groupby(
                     ['Delivery_Article_Clean', 'Delivery_Name_Clean'],
                     dropna=False
@@ -548,33 +547,9 @@ if delivery_file is not None:
                     }
                 )
 
-                # Продажби по САП код / Материал
-                sales_by_art = sales_compare.groupby(
-                    'Clean_Material', dropna=False
-                )['Sales_Qty_Clean'].sum().reset_index()
-                sales_by_art = sales_by_art.rename(
-                    columns={
-                        'Clean_Material': 'Compare_Article',
-                        'Sales_Qty_Clean': 'Sold_Qty'
-                    }
-                )
-
-                delivery_summary = delivery_summary.merge(
-                    sales_by_art,
-                    on='Compare_Article',
-                    how='left'
-                )
-                delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
-
-                # Резервно съпоставяне по име
+                # Продажбите се свързват по ИМЕ на кабела
                 sales_by_name = sales_compare.groupby('Sales_Name_Clean')['Sales_Qty_Clean'].sum().to_dict()
-                missing_sales_mask = delivery_summary['Sold_Qty'] == 0
-                delivery_summary.loc[missing_sales_mask, 'Sold_Qty'] = (
-                    delivery_summary.loc[missing_sales_mask, 'Име']
-                    .map(sales_by_name)
-                    .fillna(0)
-                )
-
+                delivery_summary['Sold_Qty'] = delivery_summary['Име'].map(sales_by_name).fillna(0)
                 delivery_summary['Compare_Code'] = delivery_summary['Compare_Article']
 
             elif delivery_code_col != "— Няма —":
@@ -684,39 +659,28 @@ if delivery_file is not None:
             )
 
             # -----------------------------------------------------
-            # 🏢 ПОДРОБНА МАТРИЧНА СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ (САМО ПО АРТИКУЛЕН КОД)
+            # 🏢 ПОДРОБНА МАТРИЧНА СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ
+            # (Доставките са по Артикулен код, Продажбите по Име на кабела)
             # -----------------------------------------------------
             if delivery_warehouse_col != "— Всички складове —":
                 st.write("---")
-                st.write("### 🏢 Подробна матрична справка по Всички Складове (чисто по Артикулен код)")
+                st.write("### 🏢 Подробна матрична справка по Всички Складове (по Артикулен код)")
 
-                # Използваме САМО Артикулен код, когато е избран
-                if delivery_article_col != "— Няма —":
-                    key_col = 'Delivery_Article_Clean'
-                elif delivery_code_col != "— Няма —":
-                    key_col = 'Delivery_Code_Clean'
-                else:
-                    key_col = 'Delivery_Name_Clean'
+                art_key = 'Delivery_Article_Clean' if delivery_article_col != "— Няма —" else ('Delivery_Code_Clean' if delivery_code_col != "— Няма —" else 'Delivery_Name_Clean')
 
-                # Доставки по Артикулен код + Склад
-                del_by_wh = df_delivery.groupby([key_col, 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
-                del_by_wh.columns = ['Артикулен код', 'Warehouse', 'Доставено']
+                # 1. Доставки по Артикулен код + Име + Склад
+                del_by_wh = df_delivery.groupby([art_key, 'Delivery_Name_Clean', 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
+                del_by_wh.columns = ['Артикулен код', 'Наименование', 'Warehouse', 'Доставено']
 
-                # Продажби по Материал / Код + Склад
-                sales_by_wh = final_df.groupby(['Clean_Material', 'Warehouse_Clean'])['Quantity_m'].sum().reset_index()
-                sales_by_wh.columns = ['Артикулен код', 'Warehouse', 'Продадено']
+                # 2. Продажби по Име + Склад (тъй като в продажбите са по ЕК/САП код, ползваме името за мост)
+                sales_by_name_wh = final_df.groupby(['Cable_Name_Clean', 'Warehouse_Clean'])['Quantity_m'].sum().reset_index()
+                sales_by_name_wh.columns = ['Наименование', 'Warehouse', 'Продадено']
 
-                # Обединяване
-                merged_wh = pd.merge(del_by_wh, sales_by_wh, on=['Артикулен код', 'Warehouse'], how='outer').fillna(0)
+                # 3. Обединяваме доставките с продажбите по Име и Склад
+                merged_wh = pd.merge(del_by_wh, sales_by_name_wh, on=['Наименование', 'Warehouse'], how='left').fillna(0)
                 merged_wh['Остатък'] = merged_wh['Доставено'] - merged_wh['Продадено']
 
-                # Наименование на кабела
-                name_lookup_sales = final_df.drop_duplicates('Clean_Material').set_index('Clean_Material')['Cable_Name_Clean'].to_dict()
-                name_lookup_del = df_delivery.drop_duplicates(key_col).set_index(key_col)['Delivery_Name_Clean'].to_dict()
-                
-                merged_wh['Наименование'] = merged_wh['Артикулен код'].map(name_lookup_sales).fillna(merged_wh['Артикулен код'].map(name_lookup_del)).fillna(merged_wh['Артикулен код'])
-
-                # Pivot таблици
+                # 4. Изграждаме Pivot таблиците
                 pivot_del = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
                 pivot_sales = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
                 pivot_bal = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
@@ -725,6 +689,7 @@ if delivery_file is not None:
                 pivot_sales.columns = [f"Продадено ({c})" for c in pivot_sales.columns]
                 pivot_bal.columns = [f"Остатък ({c})" for c in pivot_bal.columns]
 
+                # 5. Крайна сглобка
                 multi_wh_df = pd.concat([pivot_del, pivot_sales, pivot_bal], axis=1).fillna(0).reset_index()
                 st.dataframe(multi_wh_df, use_container_width=True)
 
