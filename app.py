@@ -6,10 +6,10 @@ import re
 st.set_page_config(page_title="Измерване на Продажбите на Мед и Алуминий", layout="wide")
 
 st.title("📊 Система за анализ на продажбите на кабели")
-st.write("Качете таблицата с константите и месечната таблица с продажби, за да пресметнете тонажите, оборотите, топ продуктите и топ клиентите.")
+st.write("Качете таблицата с константите, месечната таблица с продажби, доставките и наличностите, за да пресметнете тонажите, оборотите, топ продуктите, топ клиентите и наличната продукция.")
 
 # ==========================================
-# ⚙️ ФУНКЦИЯ ЗА НОРМАЛИЗИРАНЕ НА СКЛАДОВЕ
+# ⚙️ ФУНКЦИИ ЗА НОРМАЛИЗИРАНЕ
 # ==========================================
 def clean_warehouse_name(val):
     if pd.isna(val) or not str(val).strip():
@@ -32,8 +32,8 @@ def find_column(columns, candidates):
 # ==========================================
 # 1. ЗАРЕЖДАНЕ НА КОНСТАНТИТЕ (МЕРИЛКИТЕ)
 # ==========================================
-st.sidebar.header("1. Избор на файлове")
-constants_file = st.sidebar.file_uploader("Качете файла с мерилките (Excel или CSV)", type=["xlsx", "csv"])
+st.sidebar.header("1. Мерилки (Константи)")
+constants_file = st.sidebar.file_uploader("Качете файла с мерилките (Excel или CSV)", type=["xlsx", "csv"], key="const_file")
 
 db_metals = None
 
@@ -75,7 +75,9 @@ if constants_file is not None:
 # ==========================================
 # 2. ЗАРЕЖДАНЕ НА МЕСЕЧНИТЕ ПРОДАЖБИ И ИЗЧИСЛЕНИЯ
 # ==========================================
-sales_file = st.sidebar.file_uploader("Качете месечната таблица с продажби (Excel или CSV)", type=["xlsx", "csv"])
+st.sidebar.write("---")
+st.sidebar.header("2. Продажби")
+sales_file = st.sidebar.file_uploader("Качете месечната таблица с продажби (Excel или CSV)", type=["xlsx", "csv"], key="sales_file")
 
 if sales_file is not None and db_metals is not None:
     try:
@@ -151,9 +153,7 @@ if sales_file is not None and db_metals is not None:
         final_df['Продадена Мед (Тона)'] = (final_df['Quantity_m'] * final_df['Cu_weight_per_km']) / 1000000
         final_df['Продаден Алуминий (Тона)'] = (final_df['Quantity_m'] * final_df['Al_weight_per_km']) / 1000000
         
-        # ==========================================
         # 📅 ФИЛТЪР ПО МЕСЕЦ
-        # ==========================================
         st.write("---")
         if sales_date_col != "— Няма дата —" and final_df['Year_Month'].nunique() > 1:
             available_months = sorted([m for m in final_df['Year_Month'].dropna().unique() if m != "Всички"])
@@ -169,7 +169,7 @@ if sales_file is not None and db_metals is not None:
         else:
             filtered_sales_df = final_df.copy()
 
-        # KPI Картите
+        # KPI Картите за продажбите
         total_cu = filtered_sales_df['Продадена Мед (Тона)'].sum()
         total_al = filtered_sales_df['Продаден Алуминий (Тона)'].sum()
         total_len = filtered_sales_df['Quantity_m'].sum()
@@ -182,9 +182,7 @@ if sales_file is not None and db_metals is not None:
         kpi3.metric(label="Общо продаден Алуминий", value=f"{total_al:.3f} тона")
         kpi4.metric(label="Обща дължина кабели", value=f"{total_len:,.0f} метра")
 
-        # ==========================================
-        # 📊 ДИНАМИКА НА ПРОДАЖБИТЕ ПО МЕСЕЦИ
-        # ==========================================
+        # ДИНАМИКА НА ПРОДАЖБИТЕ ПО МЕСЕЦИ
         if sales_date_col != "— Няма дата —" and final_df['Year_Month'].nunique() > 1:
             st.write("---")
             st.write("### 📅 Справка за Продажбите по Месеци")
@@ -204,11 +202,9 @@ if sales_file is not None and db_metals is not None:
             formatted_monthly['Алуминий (Тона)'] = monthly_summary['Продаден Алуминий (Тона)'].map('{:.3f}'.format)
 
             st.dataframe(formatted_monthly, use_container_width=True, hide_index=True)
-
-            # Графика на оборота по месеци
             st.bar_chart(data=monthly_summary, x='Year_Month', y='Turnover_Clean', use_container_width=True)
 
-        # --- РАЗБИВКА ПО СКЛАДОВЕ ---
+        # РАЗБИВКА ПО СКЛАДОВЕ
         st.write("### 🏢 Обобщена разбивка по Складове")
         summary_wh = filtered_sales_df.groupby('Warehouse_Clean').agg({
             'Turnover_Clean': 'sum',
@@ -229,7 +225,6 @@ if sales_file is not None and db_metals is not None:
         list_warehouses = ["Всички складове общо"] + list(filtered_sales_df['Warehouse_Clean'].unique())
         
         st.write("---")
-        # --- ТОП 10 НАЙ-ПРОДАВАНИ КАБЕЛА ---
         st.write("### 🔝 Топ 10 Най-продавани Кабела")
         
         p_filter_wh = st.selectbox("Филтрирай ТОП 10 Кабели по склад:", list_warehouses, key="wh_products")
@@ -271,7 +266,6 @@ if sales_file is not None and db_metals is not None:
         st.dataframe(top_10_formatted, use_container_width=True, hide_index=True)
         
         st.write("---")
-        # --- ТОП 10 КЛИЕНТИ ---
         st.write("### 👥 Топ 10 Клиенти")
         
         c_filter_wh = st.selectbox("Филтрирай ТОП 10 Клиенти по склад:", list_warehouses, key="wh_clients")
@@ -314,7 +308,7 @@ if sales_file is not None and db_metals is not None:
             st.warning(f"⚠️ Общо {len(missing_ek_str)} SAP кода от продажбите липсват в таблицата с константи (сметнати с 0 кг):")
             st.write(missing_ek_str[:10])
         
-        st.write("### 📄 Пълна детайлна таблица")
+        st.write("### 📄 Пълна детайлна таблица с продажбите")
         st.dataframe(filtered_sales_df)
         
         @st.cache_data
@@ -338,7 +332,7 @@ elif sales_file is not None and db_metals is None:
 # 3. ЗАРЕЖДАНЕ И АНАЛИЗ НА ДОСТАВКИТЕ
 # ==========================================
 st.sidebar.write("---")
-st.sidebar.header("2. Доставки")
+st.sidebar.header("3. Доставки")
 delivery_file = st.sidebar.file_uploader(
     "Качете файла с доставки (Excel или CSV)",
     type=["xlsx", "csv"],
@@ -355,10 +349,10 @@ if delivery_file is not None:
         df_delivery.columns = df_delivery.columns.str.strip()
 
         st.write("---")
-        st.write("## 🚚 2. Доставки")
+        st.write("## 🚚 3. Доставки")
         st.write(
             "Качете таблица с доставките. Приложението ще сравни доставеното "
-            "количество с продаденото количество от точка 1."
+            "количество с продаденото количество от точка 2."
         )
 
         delivery_name_default = find_column(df_delivery.columns, ['Материал', 'Наименование', 'Име', 'Име на кабела', 'Описание', 'Cable Name'])
@@ -476,7 +470,7 @@ if delivery_file is not None:
             delivery_summary['Доставено'] = pd.to_numeric(delivery_summary['Доставено'], errors='coerce').fillna(0)
             delivery_summary['Остатък'] = delivery_summary['Доставено'] - delivery_summary['Sold_Qty']
 
-            # 🔍 ТЪРСЕНЕ
+            # 🔍 ТЪРСЕНЕ В ДОСТАВКИТЕ
             st.write("---")
             st.write("### 🔎 Търсене на конкретен кабел по Артикулен код или име")
             search_query = st.text_input("Въведете Артикулен код или част от името на кабела:", "").strip().upper()
@@ -553,7 +547,145 @@ if delivery_file is not None:
                 st.dataframe(multi_wh_df, use_container_width=True)
 
         else:
-            st.info("ℹ️ За да видите сравнението между доставено и продадено, моля качете и месечния файл с продажби от точка 1.")
+            st.info("ℹ️ За да видите сравнението между доставено и продадено, моля качете и месечния файл с продажби от точка 2.")
 
     except Exception as e:
         st.error(f"Грешка при обработката на доставките: {e}")
+
+# ==========================================
+# 4. ЗАРЕЖДАНЕ И АНАЛИЗ НА НАЛИЧНОСТИТЕ
+# ==========================================
+st.sidebar.write("---")
+st.sidebar.header("4. Наличности")
+stock_file = st.sidebar.file_uploader(
+    "Качете файла с наличности (Excel или CSV)",
+    type=["xlsx", "csv"],
+    key="stock_file"
+)
+
+if stock_file is not None and db_metals is not None:
+    try:
+        if stock_file.name.endswith('.csv'):
+            df_stock = pd.read_csv(stock_file, dtype=str)
+        else:
+            df_stock = pd.read_excel(stock_file, dtype=str)
+
+        df_stock.columns = df_stock.columns.str.strip()
+
+        st.write("---")
+        st.write("## 📦 4. Складови Наличности и Изчисление на Тонажи")
+        st.write("Качете файла с наличностите, за да сметнете общата налична дължина (метри) и тонажите на Мед и Алуминий по складове.")
+
+        # Автоматично разпознаване на колони
+        stock_code_default = find_column(df_stock.columns, ['САП код', 'SAP код', 'SAP', 'ЕК Номер', 'Материал', 'Material'])
+        stock_qty_default = find_column(df_stock.columns, ['Наличност', 'Количество', 'Колич.', 'Количество (м)', 'Stock', 'Qty'])
+        stock_name_default = find_column(df_stock.columns, ['Наименование', 'Име', 'Име на кабела', 'Описание', 'Material Name'])
+        stock_wh_default = find_column(df_stock.columns, ['Склад', 'Warehouse', 'Plant', 'Място'])
+
+        st.write("### 🔍 Настройка на колоните от файла с наличности")
+        scol1, scol2, scol3, scol4 = st.columns(4)
+
+        with scol1:
+            stock_code_col = st.selectbox("ЕК / САП Код:", df_stock.columns, index=int(df_stock.columns.get_loc(stock_code_default)), key="stock_code_col")
+        with scol2:
+            stock_qty_col = st.selectbox("Налично количество (МЕТРИ):", df_stock.columns, index=int(df_stock.columns.get_loc(stock_qty_default)), key="stock_qty_col")
+        with scol3:
+            stock_name_col = st.selectbox("Име на кабела:", df_stock.columns, index=int(df_stock.columns.get_loc(stock_name_default)), key="stock_name_col")
+        with scol4:
+            stock_wh_options = ["— Всички складове —"] + list(df_stock.columns)
+            stock_wh_index = (stock_wh_options.index(stock_wh_default) if stock_wh_default in stock_wh_options else 0)
+            stock_wh_col = st.selectbox("Склад:", stock_wh_options, index=stock_wh_index, key="stock_wh_col")
+
+        # Изчистване на данните
+        df_stock = df_stock[df_stock[stock_code_col].notna()].copy()
+        df_stock = df_stock[df_stock[stock_code_col].astype(str).str.strip() != '']
+
+        df_stock['Clean_Material'] = df_stock[stock_code_col].astype(str).str.strip().str.upper()
+        df_stock['Stock_Qty_m'] = pd.to_numeric(df_stock[stock_qty_col], errors='coerce').fillna(0)
+        df_stock['Stock_Name_Clean'] = df_stock[stock_name_col].astype(str).str.strip()
+
+        if stock_wh_col != "— Всички складове —":
+            df_stock['Stock_Warehouse_Clean'] = df_stock[stock_wh_col].apply(clean_warehouse_name)
+        else:
+            df_stock['Stock_Warehouse_Clean'] = "Всички складове"
+
+        # Сливане с базата константи за изчисление на тонажите
+        final_stock_df = pd.merge(df_stock, db_metals, on='Clean_Material', how='left')
+        final_stock_df['Cu_weight_per_km'] = final_stock_df['Cu_weight_per_km'].fillna(0)
+        final_stock_df['Al_weight_per_km'] = final_stock_df['Al_weight_per_km'].fillna(0)
+
+        # Тонаж в наличност = (Метри * Кг/Км) / 1 000 000
+        final_stock_df['Налична Мед (Тона)'] = (final_stock_df['Stock_Qty_m'] * final_stock_df['Cu_weight_per_km']) / 1000000
+        final_stock_df['Наличен Алуминий (Тона)'] = (final_stock_df['Stock_Qty_m'] * final_stock_df['Al_weight_per_km']) / 1000000
+
+        # Филтър по склад за наличностите
+        selected_stock_wh = "Всички складове"
+        if stock_wh_col != "— Всички складове —":
+            stock_warehouses = sorted(final_stock_df['Stock_Warehouse_Clean'].unique().tolist())
+            selected_stock_wh = st.selectbox(
+                "Филтрирай наличностите по склад:",
+                ["Всички складове"] + stock_warehouses,
+                key="stock_warehouse_filter"
+            )
+            if selected_stock_wh != "Всички складове":
+                view_stock_df = final_stock_df[final_stock_df['Stock_Warehouse_Clean'] == selected_stock_wh].copy()
+            else:
+                view_stock_df = final_stock_df.copy()
+        else:
+            view_stock_df = final_stock_df.copy()
+
+        # KPI Карти за Наличностите
+        st.write("---")
+        stock_label = f"за склад '{selected_stock_wh}'" if selected_stock_wh != "Всички складове" else "общо за всички складове"
+        st.write(f"### 📊 Обобщена Наличност ({stock_label})")
+
+        total_stock_len = view_stock_df['Stock_Qty_m'].sum()
+        total_stock_cu = view_stock_df['Налична Мед (Тона)'].sum()
+        total_stock_al = view_stock_df['Наличен Алуминий (Тона)'].sum()
+
+        skpi1, skpi2, skpi3 = st.columns(3)
+        skpi1.metric("Общо Налични Метри", f"{total_stock_len:,.0f} м.")
+        skpi2.metric("Общо Налична Мед", f"{total_stock_cu:.3f} тона")
+        skpi3.metric("Общо Наличен Алуминий", f"{total_stock_al:.3f} тона")
+
+        # Таблица: Наличности по Складове (ако има избран склад)
+        if stock_wh_col != "— Всички складове —":
+            st.write("### 🏢 Разбивка на Наличностите по Складове")
+            wh_stock_summary = final_stock_df.groupby('Stock_Warehouse_Clean').agg({
+                'Stock_Qty_m': 'sum',
+                'Налична Мед (Тона)': 'sum',
+                'Наличен Алуминий (Тона)': 'sum'
+            }).reset_index()
+
+            fmt_wh_stock = pd.DataFrame()
+            fmt_wh_stock['Склад'] = wh_stock_summary['Stock_Warehouse_Clean']
+            fmt_wh_stock['Налични Метри'] = wh_stock_summary['Stock_Qty_m'].map('{:,.0f}'.format)
+            fmt_wh_stock['Мед (Тона)'] = wh_stock_summary['Налична Мед (Тона)'].map('{:.3f}'.format)
+            fmt_wh_stock['Алуминий (Тона)'] = wh_stock_summary['Наличен Алуминий (Тона)'].map('{:.3f}'.format)
+
+            st.dataframe(fmt_wh_stock, use_container_width=True, hide_index=True)
+
+        # Детайлна таблица с наличностите
+        st.write("### 📄 Детайлна таблица с Наличности")
+        fmt_detail_stock = pd.DataFrame()
+        fmt_detail_stock['САП / ЕК Код'] = view_stock_df['Clean_Material']
+        fmt_detail_stock['Наименование'] = view_stock_df['Stock_Name_Clean']
+        fmt_detail_stock['Склад'] = view_stock_df['Stock_Warehouse_Clean']
+        fmt_detail_stock['Налични Метри'] = view_stock_df['Stock_Qty_m'].map('{:,.0f}'.format)
+        fmt_detail_stock['Мед (Тона)'] = view_stock_df['Налична Мед (Тона)'].map('{:.3f}'.format)
+        fmt_detail_stock['Алуминий (Тона)'] = view_stock_df['Наличен Алуминий (Тона)'].map('{:.3f}'.format)
+
+        st.dataframe(fmt_detail_stock, use_container_width=True, hide_index=True)
+
+        stock_csv = view_stock_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Изтегли изчислените наличности (CSV)",
+            data=stock_csv,
+            file_name=f"Наличности_Тонажи_{selected_stock_wh}.csv",
+            mime="text/csv",
+        )
+
+    except Exception as e:
+        st.error(f"Грешка при обработката на наличностите: {e}")
+elif stock_file is not None and db_metals is None:
+    st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите (мерилките) от Точка 1.")
