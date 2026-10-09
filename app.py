@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import re
-import os
 from datetime import date
 
 # Настройки на страницата
@@ -9,6 +8,10 @@ st.set_page_config(page_title="Система за Анализ и Заявки 
 
 st.title("📊 Система за анализ на продажбите, доставките, наличностите и заявките")
 st.write("Качете съответните файлове или използвайте модула за въвеждане на нови заявки.")
+
+# Инициализиране на временната кошница за заявката (ако не съществува)
+if 'current_order_items' not in st.session_state:
+    st.session_state['current_order_items'] = []
 
 # ==========================================
 # ⚙️ ФУНКЦИИ ЗА НОРМАЛИЗИРАНЕ И ПОМОЩНИ
@@ -30,9 +33,6 @@ def find_column(columns, candidates):
             if str(candidate).strip().lower() in col_clean:
                 return col
     return columns[0] if len(columns) else None
-
-# Локален файл за съхранение на заявките
-ORDERS_FILE = "zayavki_orders.csv"
 
 # ==========================================
 # 1. ЗАРЕЖДАНЕ НА КОНСТАНТИТЕ (МЕРИЛКИТЕ)
@@ -695,14 +695,15 @@ elif stock_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите (мерилките) от Точка 1.")
 
 # ==========================================
-# 5. МОДУЛ ЗА ЗАЯВКИ (ВЪВЕЖДАНЕ И ЗАПИС)
+# 5. МОДУЛ ЗА МНОГОРОДОВИ ЗАЯВКИ (КОШНИЦА)
 # ==========================================
 st.sidebar.write("---")
 st.sidebar.header("5. Заявки")
 st.write("---")
-st.header("📝 Модул за създаване и натрупване на Заявки")
+st.header("📝 Модул за създаване на многородови Заявки")
 
-with st.expander("➕ Въведи нова заявка", expanded=True):
+# Форма за добавяне на ред към текущата заявка
+with st.expander("➕ Добави нов артикул към заявката", expanded=True):
     col_z1, col_z2, col_z3 = st.columns(3)
 
     with col_z1:
@@ -715,32 +716,33 @@ with st.expander("➕ Въведи нова заявка", expanded=True):
             st.info(f"📌 Намерено име: **{detected_name}**")
 
     with col_z2:
-        step_choice = st.radio("Изберете кратност на опаковката:", ["Кратност 100 м.", "Кратност 1000 м."], horizontal=True)
+        step_choice = st.radio("Кратност:", ["Кратност 100 м.", "Кратност 1000 м."], horizontal=True)
         step_val = 100 if step_choice == "Кратност 100 м." else 1000
         
         num_units = st.number_input(
-            f"Брой опаковки/бунти ({step_val} м. всяка):",
+            f"Брой опаковки ({step_val} м. всяка):",
             min_value=1,
             value=1,
             step=1,
             key="order_units_input"
         )
         total_order_qty = num_units * step_val
-        st.success(f"📏 Общо за заявяване: **{total_order_qty:,.0f} метра**")
+        st.success(f"📏 Общо: **{total_order_qty:,.0f} м.**")
 
     with col_z3:
         order_date = st.date_input("Дата на заявката:", value=date.today(), key="order_date_input")
         
         warehouse_list = ["София", "Пловдив", "Варна", "Бургас", "Централен склад"]
-        order_warehouse = st.selectbox("Изберете склад за заявката:", warehouse_list, key="order_wh_input")
+        order_warehouse = st.selectbox("Изберете склад:", warehouse_list, key="order_wh_input")
 
-    if st.button("💾 Запиши заявката", type="primary"):
+    if st.button("➕ Добави ред към текущата заявка"):
         if not input_ek:
             st.error("❌ Моля, въведете ЕК / САП код!")
         else:
             final_cable_name = detected_name if detected_name else "Неизвестен кабел"
             
-            new_order = pd.DataFrame([{
+            # Добавяме елемента в Session State масива
+            st.session_state['current_order_items'].append({
                 'Дата на заявка': order_date.strftime('%Y-%m-%d'),
                 'ЕК / САП Код': input_ek,
                 'Наименование на кабела': final_cable_name,
@@ -748,36 +750,37 @@ with st.expander("➕ Въведи нова заявка", expanded=True):
                 'Брой опаковки': num_units,
                 'Заявено количество (м)': total_order_qty,
                 'Склад': order_warehouse
-            }])
+            })
+            st.success(f"✅ Добавен ред за: {total_order_qty:,.0f} м. {final_cable_name}")
 
-            if os.path.exists(ORDERS_FILE):
-                new_order.to_csv(ORDERS_FILE, mode='a', header=False, index=False, encoding='utf-8-sig')
-            else:
-                new_order.to_csv(ORDERS_FILE, mode='w', header=True, index=False, encoding='utf-8-sig')
-
-            st.balloons()
-            st.success(f"✅ Заявката за {total_order_qty:,.0f} м. {final_cable_name} за склад {order_warehouse} бе записана успешно!")
-
-if os.path.exists(ORDERS_FILE):
-    st.write("### 📋 Списък с всички записани заявки (натрупани локално)")
-    df_orders_all = pd.read_csv(ORDERS_FILE, dtype=str)
+# ==========================================
+# 📋 ПРЕГЛЕД НА ТЕКУЩАТА ЗАЯВКА (МНОГО РЕДОВЕ)
+# ==========================================
+if len(st.session_state['current_order_items']) > 0:
+    st.write(f"### 📋 Временна заявка (Общо {len(st.session_state['current_order_items'])} артикула)")
     
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        filter_ord_wh = st.selectbox("Филтрирай заявките по склад:", ["Всички складове"] + list(df_orders_all['Склад'].unique()))
-    with col_f2:
-        st.write("")
+    df_current_order = pd.DataFrame(st.session_state['current_order_items'])
+    st.dataframe(df_current_order, use_container_width=True, hide_index=True)
 
-    view_orders = df_orders_all.copy()
-    if filter_ord_wh != "Всички складове":
-        view_orders = view_orders[view_orders['Склад'] == filter_ord_wh]
+    col_btn1, col_btn2 = st.columns([2, 1])
+    
+    with col_btn1:
+        # Изглаждане на файла за изтегляне (Запазване на желания локален адрес)
+        order_csv_data = df_current_order.to_csv(index=False).encode('utf-8-sig')
+        file_name_default = f"Zayavka_{order_warehouse}_{date.today().strftime('%Y-%m-%d')}.csv"
+        
+        st.download_button(
+            label="💾 Изтегли и запази цялата заявка (CSV)",
+            data=order_csv_data,
+            file_name=file_name_default,
+            mime="text/csv",
+            type="primary"
+        )
+        st.caption("ℹ️ При натискане на бутона, браузърът ще Ви попита къде точно на компютъра си да запазите файла.")
 
-    st.dataframe(view_orders, use_container_width=True, hide_index=True)
-
-    orders_csv = df_orders_all.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label="📥 Изтегли всички заявки (CSV)",
-        data=orders_csv,
-        file_name="Zayavki_Kabeli.csv",
-        mime="text/csv"
-    )
+    with col_btn2:
+        if st.button("🗑️ Изчисти цялата заявка"):
+            st.session_state['current_order_items'] = []
+            st.rerun()
+else:
+    st.info("ℹ️ В момента няма добавени артикули в текущата заявка. Добавете редове от формуляра по-горе.")
