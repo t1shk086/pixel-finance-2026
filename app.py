@@ -695,14 +695,14 @@ elif stock_file is not None and db_metals is None:
     st.sidebar.info("ℹ️ Моля, първо качете таблицата с константите (мерилките) от Точка 1.")
 
 # ==========================================
-# 5. МОДУЛ ЗА МНОГОРОДОВИ ЗАЯВКИ (КОШНИЦА)
+# 5. МОДУЛ ЗА ЗАЯВКИ (РУЛА / БАРАБАНИ И РЕДАКТИРАНЕ)
 # ==========================================
 st.sidebar.write("---")
 st.sidebar.header("5. Заявки")
 st.write("---")
-st.header("📝 Модул за създаване на многородови Заявки")
+st.header("📝 Модул за създаване на Заявки")
 
-# Форма за добавяне на ред към текущата заявка
+# Форма за добавяне на ред
 with st.expander("➕ Добави нов артикул към заявката", expanded=True):
     col_z1, col_z2, col_z3 = st.columns(3)
 
@@ -716,58 +716,79 @@ with st.expander("➕ Добави нов артикул към заявката
             st.info(f"📌 Намерено име: **{detected_name}**")
 
     with col_z2:
-        step_choice = st.radio("Кратност:", ["Кратност 100 м.", "Кратност 1000 м."], horizontal=True)
-        step_val = 100 if step_choice == "Кратност 100 м." else 1000
-        
-        num_units = st.number_input(
-            f"Брой опаковки ({step_val} м. всяка):",
+        package_type = st.radio("Вид опаковка:", ["Руло", "Барабан"], horizontal=True)
+        total_order_qty = st.number_input(
+            "Заявено количество (МЕТРИ):",
             min_value=1,
-            value=1,
-            step=1,
-            key="order_units_input"
+            value=100,
+            step=50,
+            key="order_qty_input"
         )
-        total_order_qty = num_units * step_val
-        st.success(f"📏 Общо: **{total_order_qty:,.0f} м.**")
 
     with col_z3:
         order_date = st.date_input("Дата на заявката:", value=date.today(), key="order_date_input")
-        
         warehouse_list = ["София", "Пловдив", "Варна", "Бургас", "Централен склад"]
         order_warehouse = st.selectbox("Изберете склад:", warehouse_list, key="order_wh_input")
 
-    if st.button("➕ Добави ред към текущата заявка"):
+    if st.button("➕ Добави ред към заявката", type="primary"):
         if not input_ek:
             st.error("❌ Моля, въведете ЕК / САП код!")
         else:
             final_cable_name = detected_name if detected_name else "Неизвестен кабел"
             
-            # Добавяме елемента в Session State масива
             st.session_state['current_order_items'].append({
                 'Дата на заявка': order_date.strftime('%Y-%m-%d'),
                 'ЕК / САП Код': input_ek,
                 'Наименование на кабела': final_cable_name,
-                'Кратност (м)': step_val,
-                'Брой опаковки': num_units,
-                'Заявено количество (м)': total_order_qty,
+                'Опаковка': package_type,
+                'Заявено количество (м)': int(total_order_qty),
                 'Склад': order_warehouse
             })
-            st.success(f"✅ Добавен ред за: {total_order_qty:,.0f} м. {final_cable_name}")
+            st.success(f"✅ Добавен ред за: {total_order_qty:,.0f} м. ({package_type}) - {final_cable_name}")
 
 # ==========================================
-# 📋 ПРЕГЛЕД НА ТЕКУЩАТА ЗАЯВКА (МНОГО РЕДОВЕ)
+# 📋 ИНТЕРАКТИВЕН ПРЕГЛЕД И РЕДАКТИРАНЕ НА ЗАЯВКАТА
 # ==========================================
 if len(st.session_state['current_order_items']) > 0:
-    st.write(f"### 📋 Временна заявка (Общо {len(st.session_state['current_order_items'])} артикула)")
-    
+    st.write(f"### 📋 Текуща заявка ({len(st.session_state['current_order_items'])} артикула)")
+    st.caption("✏️ **Съвет:** Можете да редактирате данните директно в клетката или да маркирате и изтриете ред.")
+
     df_current_order = pd.DataFrame(st.session_state['current_order_items'])
-    st.dataframe(df_current_order, use_container_width=True, hide_index=True)
+
+    # Интерактивен редактор на таблицата
+    edited_df = st.data_editor(
+        df_current_order,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Опаковка": st.column_config.SelectboxColumn(
+                "Опаковка",
+                options=["Руло", "Барабан"],
+                required=True
+            ),
+            "Заявено количество (м)": st.column_config.NumberColumn(
+                "Заявено количество (м)",
+                min_value=1,
+                step=10,
+                format="%d"
+            ),
+            "Склад": st.column_config.SelectboxColumn(
+                "Склад",
+                options=["София", "Пловдив", "Варна", "Бургас", "Централен склад"],
+                required=True
+            )
+        },
+        key="order_data_editor"
+    )
+
+    # Обновяване на състоянието при промени от потребителя
+    st.session_state['current_order_items'] = edited_df.to_dict('records')
 
     col_btn1, col_btn2 = st.columns([2, 1])
     
     with col_btn1:
-        # Изглаждане на файла за изтегляне (Запазване на желания локален адрес)
-        order_csv_data = df_current_order.to_csv(index=False).encode('utf-8-sig')
-        file_name_default = f"Zayavka_{order_warehouse}_{date.today().strftime('%Y-%m-%d')}.csv"
+        order_csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
+        file_name_default = f"Zayavka_{date.today().strftime('%Y-%m-%d')}.csv"
         
         st.download_button(
             label="💾 Изтегли и запази цялата заявка (CSV)",
@@ -776,7 +797,7 @@ if len(st.session_state['current_order_items']) > 0:
             mime="text/csv",
             type="primary"
         )
-        st.caption("ℹ️ При натискане на бутона, браузърът ще Ви попита къде точно на компютъра си да запазите файла.")
+        st.caption("ℹ️ Браузърът ще Ви попита в коя папка на компютъра си да запазите файла.")
 
     with col_btn2:
         if st.button("🗑️ Изчисти цялата заявка"):
