@@ -86,7 +86,7 @@ if sales_file is not None and db_metals is not None:
         col1, col2, col3, col4, col5, col6 = st.columns(5) if 'Клиент' not in df_sales.columns else st.columns(6)
         
         with col1:
-            ek_col = st.selectbox("Колона с ЕК Номер:", df_sales.columns, index=int(df_sales.columns.get_loc(default_ek)))
+            ek_col = st.selectbox("Колона с ЕК / САП Номер:", df_sales.columns, index=int(df_sales.columns.get_loc(default_ek)))
         with col2:
             qty_col = st.selectbox("Колона с Количество (в МЕТРИ):", df_sales.columns, index=int(df_sales.columns.get_loc(default_qty)))
         with col3:
@@ -320,7 +320,7 @@ if delivery_file is not None:
 
         delivery_article_default = find_column(
             df_delivery.columns,
-            ['Артикулен номер', 'Артикул', 'Номер артикул', 'Материален номер',
+            ['Артикулен номер', 'Артикул', 'Номер артикул',
              'Article Number', 'Article No', 'Item Number', 'Item No', 'SKU']
         )
 
@@ -372,7 +372,7 @@ if delivery_file is not None:
                 if delivery_article_default in delivery_article_options else 0
             )
             delivery_article_col = st.selectbox(
-                "Колона с артикулен номер:",
+                "Колона с АРТИКУЛЕН НОМЕР:",
                 delivery_article_options,
                 index=delivery_article_index,
                 key="delivery_article_col"
@@ -532,32 +532,9 @@ if delivery_file is not None:
                 sales_compare['Quantity_m'], errors='coerce'
             ).fillna(0)
 
-            delivery_has_codes = (
-                delivery_code_col != "— Няма —" and
-                delivery_filtered['Delivery_Code_Clean'].astype(str).str.strip().ne('').any()
-            )
-
-            sales_by_code = sales_compare.groupby(
-                'Clean_Material', dropna=False
-            )['Sales_Qty_Clean'].sum().reset_index()
-            sales_by_code = sales_by_code.rename(
-                columns={
-                    'Clean_Material': 'Compare_Code',
-                    'Sales_Qty_Clean': 'Sold_Qty'
-                }
-            )
-
-            sales_by_name = sales_compare.groupby(
-                'Sales_Name_Clean', dropna=False
-            )['Sales_Qty_Clean'].sum().reset_index()
-            sales_by_name = sales_by_name.rename(
-                columns={
-                    'Sales_Name_Clean': 'Compare_Name',
-                    'Sales_Qty_Clean': 'Sold_Qty'
-                }
-            )
-
+            # --- СЪПОСТАВКА ПО АРТИКУЛЕН КОД ---
             if delivery_article_col != "— Няма —":
+                # Групираме доставките САМО по Артикулен код и Име
                 delivery_summary = delivery_filtered.groupby(
                     ['Delivery_Article_Clean', 'Delivery_Name_Clean'],
                     dropna=False
@@ -571,27 +548,36 @@ if delivery_file is not None:
                     }
                 )
 
-                sales_by_article = sales_by_code.rename(
-                    columns={'Compare_Code': 'Compare_Article'}
+                # Продажби по САП код / Материал
+                sales_by_art = sales_compare.groupby(
+                    'Clean_Material', dropna=False
+                )['Sales_Qty_Clean'].sum().reset_index()
+                sales_by_art = sales_by_art.rename(
+                    columns={
+                        'Clean_Material': 'Compare_Article',
+                        'Sales_Qty_Clean': 'Sold_Qty'
+                    }
                 )
+
                 delivery_summary = delivery_summary.merge(
-                    sales_by_article,
+                    sales_by_art,
                     on='Compare_Article',
                     how='left'
                 )
                 delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
 
-                sales_name_lookup = sales_by_name.set_index('Compare_Name')['Sold_Qty'].to_dict()
+                # Резервно съпоставяне по име
+                sales_by_name = sales_compare.groupby('Sales_Name_Clean')['Sales_Qty_Clean'].sum().to_dict()
                 missing_sales_mask = delivery_summary['Sold_Qty'] == 0
                 delivery_summary.loc[missing_sales_mask, 'Sold_Qty'] = (
                     delivery_summary.loc[missing_sales_mask, 'Име']
-                    .map(sales_name_lookup)
+                    .map(sales_by_name)
                     .fillna(0)
                 )
 
                 delivery_summary['Compare_Code'] = delivery_summary['Compare_Article']
 
-            elif delivery_has_codes:
+            elif delivery_code_col != "— Няма —":
                 delivery_summary = delivery_filtered.groupby(
                     ['Delivery_Code_Clean', 'Delivery_Name_Clean'],
                     dropna=False
@@ -605,22 +591,15 @@ if delivery_file is not None:
                     }
                 )
 
+                sales_by_code = sales_compare.groupby('Clean_Material')['Sales_Qty_Clean'].sum().reset_index()
+                sales_by_code.columns = ['Compare_Code', 'Sold_Qty']
+
                 delivery_summary = delivery_summary.merge(
                     sales_by_code,
                     on='Compare_Code',
                     how='left'
                 )
-
                 delivery_summary['Sold_Qty'] = delivery_summary['Sold_Qty'].fillna(0)
-
-                sales_name_lookup = sales_by_name.set_index('Compare_Name')['Sold_Qty'].to_dict()
-
-                missing_sales_mask = delivery_summary['Sold_Qty'] == 0
-                delivery_summary.loc[missing_sales_mask, 'Sold_Qty'] = (
-                    delivery_summary.loc[missing_sales_mask, 'Име']
-                    .map(sales_name_lookup)
-                    .fillna(0)
-                )
 
             else:
                 delivery_summary = delivery_filtered.groupby(
@@ -635,8 +614,11 @@ if delivery_file is not None:
                     }
                 )
 
+                sales_by_name = sales_compare.groupby('Sales_Name_Clean')['Sales_Qty_Clean'].sum().reset_index()
+                sales_by_name.columns = ['Име', 'Sold_Qty']
+
                 delivery_summary = delivery_summary.merge(
-                    sales_by_name.rename(columns={'Compare_Name': 'Име'}),
+                    sales_by_name,
                     on='Име',
                     how='left'
                 )
@@ -650,58 +632,12 @@ if delivery_file is not None:
                 delivery_summary['Доставено'] - delivery_summary['Sold_Qty']
             )
 
-            if delivery_has_codes:
-                delivered_codes = set(
-                    delivery_summary['Compare_Code'].astype(str)
-                )
-
-                sales_extra = sales_by_code[
-                    ~sales_by_code['Compare_Code'].astype(str).isin(delivered_codes)
-                ].copy()
-
-                if not sales_extra.empty:
-                    sales_extra['Име'] = (
-                        sales_extra['Compare_Code']
-                        .map(
-                            sales_compare.drop_duplicates('Clean_Material')
-                            .set_index('Clean_Material')['Cable_Name_Clean']
-                            .to_dict()
-                        )
-                        .fillna(sales_extra['Compare_Code'])
-                    )
-                    sales_extra['Доставено'] = 0
-                    sales_extra['Остатък'] = -sales_extra['Sold_Qty']
-                    sales_extra = sales_extra[
-                        ['Compare_Code', 'Име', 'Доставено', 'Sold_Qty', 'Остатък']
-                    ]
-                    delivery_summary = pd.concat(
-                        [delivery_summary, sales_extra],
-                        ignore_index=True
-                    )
-            else:
-                delivered_names = set(delivery_summary['Име'].astype(str))
-                sales_extra = sales_by_name[
-                    ~sales_by_name['Compare_Name'].astype(str).isin(delivered_names)
-                ].copy()
-
-                if not sales_extra.empty:
-                    sales_extra['Име'] = sales_extra['Compare_Name']
-                    sales_extra['Доставено'] = 0
-                    sales_extra['Остатък'] = -sales_extra['Sold_Qty']
-                    sales_extra = sales_extra[
-                        ['Име', 'Доставено', 'Sold_Qty', 'Остатък']
-                    ]
-                    delivery_summary = pd.concat(
-                        [delivery_summary, sales_extra],
-                        ignore_index=True
-                    )
-
             # -----------------------------------------------------
-            # 🔍 ТЪРСЕНЕ ПО ЕК НОМЕР / САП КОД ИЛИ ИМЕ
+            # 🔍 ТЪРСЕНЕ ПО АРТИКУЛЕН КОД ИЛИ ИМЕ
             # -----------------------------------------------------
             st.write("---")
-            st.write("### 🔎 Търсене на конкретен кабел по ЕК номер / САП код или име")
-            search_query = st.text_input("Въведете ЕК Номер, САП код или част от името на кабела:", "").strip().upper()
+            st.write("### 🔎 Търсене на конкретен кабел по Артикулен код или име")
+            search_query = st.text_input("Въведете Артикулен код или част от името на кабела:", "").strip().upper()
 
             if search_query:
                 mask_code = delivery_summary['Compare_Code'].astype(str).str.upper().str.contains(search_query, na=False) if 'Compare_Code' in delivery_summary.columns else False
@@ -731,7 +667,7 @@ if delivery_file is not None:
 
             formatted_del_summary = pd.DataFrame()
             if 'Compare_Code' in delivery_summary.columns:
-                formatted_del_summary['Код'] = delivery_summary['Compare_Code']
+                formatted_del_summary['Артикулен код'] = delivery_summary['Compare_Code']
             formatted_del_summary['Наименование на кабела'] = delivery_summary['Име']
             formatted_del_summary['Доставено (Метри)'] = delivery_summary['Доставено'].map('{:,.0f}'.format)
             formatted_del_summary['Продадено (Метри)'] = delivery_summary['Sold_Qty'].map('{:,.0f}'.format)
@@ -748,36 +684,42 @@ if delivery_file is not None:
             )
 
             # -----------------------------------------------------
-            # 🏢 СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ (ПО АРТИКУЛЕН / САП КОД)
+            # 🏢 ПОДРОБНА МАТРИЧНА СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ (САМО ПО АРТИКУЛЕН КОД)
             # -----------------------------------------------------
             if delivery_warehouse_col != "— Всички складове —":
                 st.write("---")
-                st.write("### 🏢 Подробна матрична справка по Всички Складове (по Артикулен / САП код)")
+                st.write("### 🏢 Подробна матрична справка по Всички Складове (чисто по Артикулен код)")
 
+                # Използваме САМО Артикулен код, когато е избран
                 if delivery_article_col != "— Няма —":
-                    code_col_del = 'Delivery_Article_Clean'
+                    key_col = 'Delivery_Article_Clean'
                 elif delivery_code_col != "— Няма —":
-                    code_col_del = 'Delivery_Code_Clean'
+                    key_col = 'Delivery_Code_Clean'
                 else:
-                    code_col_del = 'Delivery_Name_Clean'
+                    key_col = 'Delivery_Name_Clean'
 
-                del_by_wh = df_delivery.groupby([code_col_del, 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
-                del_by_wh.columns = ['Code', 'Warehouse', 'Доставено']
+                # Доставки по Артикулен код + Склад
+                del_by_wh = df_delivery.groupby([key_col, 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
+                del_by_wh.columns = ['Артикулен код', 'Warehouse', 'Доставено']
 
+                # Продажби по Материал / Код + Склад
                 sales_by_wh = final_df.groupby(['Clean_Material', 'Warehouse_Clean'])['Quantity_m'].sum().reset_index()
-                sales_by_wh.columns = ['Code', 'Warehouse', 'Продадено']
+                sales_by_wh.columns = ['Артикулен код', 'Warehouse', 'Продадено']
 
-                merged_wh = pd.merge(del_by_wh, sales_by_wh, on=['Code', 'Warehouse'], how='outer').fillna(0)
+                # Обединяване
+                merged_wh = pd.merge(del_by_wh, sales_by_wh, on=['Артикулен код', 'Warehouse'], how='outer').fillna(0)
                 merged_wh['Остатък'] = merged_wh['Доставено'] - merged_wh['Продадено']
 
+                # Наименование на кабела
                 name_lookup_sales = final_df.drop_duplicates('Clean_Material').set_index('Clean_Material')['Cable_Name_Clean'].to_dict()
-                name_lookup_del = df_delivery.drop_duplicates(code_col_del).set_index(code_col_del)['Delivery_Name_Clean'].to_dict()
+                name_lookup_del = df_delivery.drop_duplicates(key_col).set_index(key_col)['Delivery_Name_Clean'].to_dict()
                 
-                merged_wh['Име на кабела'] = merged_wh['Code'].map(name_lookup_sales).fillna(merged_wh['Code'].map(name_lookup_del)).fillna(merged_wh['Code'])
+                merged_wh['Наименование'] = merged_wh['Артикулен код'].map(name_lookup_sales).fillna(merged_wh['Артикулен код'].map(name_lookup_del)).fillna(merged_wh['Артикулен код'])
 
-                pivot_del = merged_wh.pivot_table(index=['Code', 'Име на кабела'], columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
-                pivot_sales = merged_wh.pivot_table(index=['Code', 'Име на кабела'], columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
-                pivot_bal = merged_wh.pivot_table(index=['Code', 'Име на кабела'], columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
+                # Pivot таблици
+                pivot_del = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
+                pivot_sales = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
+                pivot_bal = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
 
                 pivot_del.columns = [f"Доставено ({c})" for c in pivot_del.columns]
                 pivot_sales.columns = [f"Продадено ({c})" for c in pivot_sales.columns]
