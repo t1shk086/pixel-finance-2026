@@ -34,7 +34,7 @@ if constants_file is not None:
             df_const['Clean_NF'] = df_const[nf_col].astype(str).str.strip().str.replace('.0', '', regex=False).str.zfill(3)
             df_const['Clean_Weight'] = pd.to_numeric(df_const[weight_col], errors='coerce').fillna(0)
             
-            # Разделяне на Мед (001) and Алуминий (002)
+            # Разделяне на Мед (001) и Алуминий (002)
             copper = df_const[df_const['Clean_NF'] == '001'][['Clean_Material', 'Clean_Weight']].rename(columns={'Clean_Weight': 'Cu_weight_per_km'})
             aluminum = df_const[df_const['Clean_NF'] == '002'][['Clean_Material', 'Clean_Weight']].rename(columns={'Clean_Weight': 'Al_weight_per_km'})
             
@@ -691,4 +691,63 @@ if delivery_file is not None:
                     )
                     sales_extra['Доставено'] = 0
                     sales_extra['Остатък'] = -sales_extra['Sold_Qty']
-                    sales_extra = sales
+                    sales_extra = sales_extra[
+                        ['Compare_Code', 'Име', 'Доставено', 'Sold_Qty', 'Остатък']
+                    ]
+                    delivery_summary = pd.concat(
+                        [delivery_summary, sales_extra],
+                        ignore_index=True
+                    )
+            else:
+                delivered_names = set(delivery_summary['Име'].astype(str))
+                sales_extra = sales_by_name[
+                    ~sales_by_name['Compare_Name'].astype(str).isin(delivered_names)
+                ].copy()
+
+                if not sales_extra.empty:
+                    sales_extra['Име'] = sales_extra['Compare_Name']
+                    sales_extra['Доставено'] = 0
+                    sales_extra['Остатък'] = -sales_extra['Sold_Qty']
+                    sales_extra = sales_extra[
+                        ['Име', 'Доставено', 'Sold_Qty', 'Остатък']
+                    ]
+                    delivery_summary = pd.concat(
+                        [delivery_summary, sales_extra],
+                        ignore_index=True
+                    )
+
+            # Покажи за кой склад се отнасят данните в заглавието
+            wh_label = f"за склад '{selected_delivery_warehouse}'" if selected_delivery_warehouse != "Всички складове" else "за всички складове"
+            st.write(f"### 📊 Сравнение: Доставени vs Продадени количества ({wh_label})")
+
+            col_del_kpi1, col_del_kpi2, col_del_kpi3 = st.columns(3)
+            tot_del = delivery_summary['Доставено'].sum()
+            tot_sold_comp = delivery_summary['Sold_Qty'].sum()
+            tot_diff = tot_del - tot_sold_comp
+
+            col_del_kpi1.metric("Общо доставени (м)", f"{tot_del:,.0f}")
+            col_del_kpi2.metric("Общо продадени (м)", f"{tot_sold_comp:,.0f}")
+            col_del_kpi3.metric("Разлика / Остатък (м)", f"{tot_diff:,.0f}")
+
+            formatted_del_summary = pd.DataFrame()
+            if 'Compare_Code' in delivery_summary.columns:
+                formatted_del_summary['Код'] = delivery_summary['Compare_Code']
+            formatted_del_summary['Наименование на кабела'] = delivery_summary['Име']
+            formatted_del_summary['Доставено (Метри)'] = delivery_summary['Доставено'].map('{:,.0f}'.format)
+            formatted_del_summary['Продадено (Метри)'] = delivery_summary['Sold_Qty'].map('{:,.0f}'.format)
+            formatted_del_summary['Остатък / Баланс (Метри)'] = delivery_summary['Остатък'].map('{:,.0f}'.format)
+
+            st.dataframe(formatted_del_summary, use_container_width=True, hide_index=True)
+
+            del_csv = delivery_summary.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Изтегли съпоставката на доставките (CSV)",
+                data=del_csv,
+                file_name=f"Доставки_vs_Продажби_{selected_delivery_warehouse}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("ℹ️ За да видите сравнението между доставено и продадено, моля качете и месечния файл с продажби от точка 1.")
+
+    except Exception as e:
+        st.error(f"Грешка при обработката на доставките: {e}")
