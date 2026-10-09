@@ -547,7 +547,6 @@ if delivery_file is not None:
                     }
                 )
 
-                # Продажбите се свързват по ИМЕ на кабела
                 sales_by_name = sales_compare.groupby('Sales_Name_Clean')['Sales_Qty_Clean'].sum().to_dict()
                 delivery_summary['Sold_Qty'] = delivery_summary['Име'].map(sales_by_name).fillna(0)
                 delivery_summary['Compare_Code'] = delivery_summary['Compare_Article']
@@ -626,19 +625,23 @@ if delivery_file is not None:
                     st.warning(f"⚠️ Не са намерени резултати за '{search_query}'.")
 
             # -----------------------------------------------------
-            # ГЛАВНА ТАБЛИЦА С ДАННИ
+            # ГЛАВНА ТАБЛИЦА С ДАННИ (С ДОБАВЕН ПРОЦЕНТ РЕАЛИЗАЦИЯ)
             # -----------------------------------------------------
             wh_label = f"за склад '{selected_delivery_warehouse}'" if selected_delivery_warehouse != "Всички складове" else "за всички складове"
             st.write(f"### 📊 Сравнение: Доставени vs Продадени количества ({wh_label})")
 
-            col_del_kpi1, col_del_kpi2, col_del_kpi3 = st.columns(3)
+            col_del_kpi1, col_del_kpi2, col_del_kpi3, col_del_kpi4 = st.columns(4)
             tot_del = delivery_summary['Доставено'].sum()
             tot_sold_comp = delivery_summary['Sold_Qty'].sum()
             tot_diff = tot_del - tot_sold_comp
+            
+            # Изчисление на процента
+            pct_realized = (tot_sold_comp / tot_del * 100) if tot_del > 0 else 0.0
 
             col_del_kpi1.metric("Общо доставени (м)", f"{tot_del:,.0f}")
             col_del_kpi2.metric("Общо продадени (м)", f"{tot_sold_comp:,.0f}")
             col_del_kpi3.metric("Разлика / Остатък (м)", f"{tot_diff:,.0f}")
+            col_del_kpi4.metric("Реализирано количество", f"{pct_realized:.1f}%")
 
             formatted_del_summary = pd.DataFrame()
             if 'Compare_Code' in delivery_summary.columns:
@@ -660,7 +663,6 @@ if delivery_file is not None:
 
             # -----------------------------------------------------
             # 🏢 ПОДРОБНА МАТРИЧНА СПРАВКА ПО ВСИЧКИ СКЛАДОВЕ
-            # (Доставките са по Артикулен код, Продажбите по Име на кабела)
             # -----------------------------------------------------
             if delivery_warehouse_col != "— Всички складове —":
                 st.write("---")
@@ -668,19 +670,15 @@ if delivery_file is not None:
 
                 art_key = 'Delivery_Article_Clean' if delivery_article_col != "— Няма —" else ('Delivery_Code_Clean' if delivery_code_col != "— Няма —" else 'Delivery_Name_Clean')
 
-                # 1. Доставки по Артикулен код + Име + Склад
                 del_by_wh = df_delivery.groupby([art_key, 'Delivery_Name_Clean', 'Delivery_Warehouse_Clean'])['Delivery_Qty_Clean'].sum().reset_index()
                 del_by_wh.columns = ['Артикулен код', 'Наименование', 'Warehouse', 'Доставено']
 
-                # 2. Продажби по Име + Склад (тъй като в продажбите са по ЕК/САП код, ползваме името за мост)
                 sales_by_name_wh = final_df.groupby(['Cable_Name_Clean', 'Warehouse_Clean'])['Quantity_m'].sum().reset_index()
                 sales_by_name_wh.columns = ['Наименование', 'Warehouse', 'Продадено']
 
-                # 3. Обединяваме доставките с продажбите по Име и Склад
                 merged_wh = pd.merge(del_by_wh, sales_by_name_wh, on=['Наименование', 'Warehouse'], how='left').fillna(0)
                 merged_wh['Остатък'] = merged_wh['Доставено'] - merged_wh['Продадено']
 
-                # 4. Изграждаме Pivot таблиците
                 pivot_del = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Доставено', aggfunc='sum', fill_value=0)
                 pivot_sales = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Продадено', aggfunc='sum', fill_value=0)
                 pivot_bal = merged_wh.pivot_table(index=['Артикулен код', 'Наименование'], columns='Warehouse', values='Остатък', aggfunc='sum', fill_value=0)
@@ -689,7 +687,6 @@ if delivery_file is not None:
                 pivot_sales.columns = [f"Продадено ({c})" for c in pivot_sales.columns]
                 pivot_bal.columns = [f"Остатък ({c})" for c in pivot_bal.columns]
 
-                # 5. Крайна сглобка
                 multi_wh_df = pd.concat([pivot_del, pivot_sales, pivot_bal], axis=1).fillna(0).reset_index()
                 st.dataframe(multi_wh_df, use_container_width=True)
 
